@@ -1,0 +1,476 @@
+import { useEffect, useState } from 'react'
+import Layout from '../components/Layout'
+import StatusBadge from '../components/StatusBadge'
+import EntryDetails from '../components/EntryDetails'
+import { useAuth } from '../context/AuthContext'
+import { supabase } from '../lib/supabase'
+import { formatDate, toISODate } from '../lib/dates'
+import { exportXlsx } from '../lib/xlsx'
+
+const TABS = [
+  { key: 'approvals', label: 'طلبات التسجيل' },
+  { key: 'release', label: 'إدخالات للمراجعة' },
+  { key: 'users', label: 'المستخدمون' },
+  { key: 'settings', label: 'الأوزان والحافز' },
+]
+
+export default function SupervisorDashboard() {
+  const { user } = useAuth()
+  const [tab, setTab] = useState('approvals')
+  const [pending, setPending] = useState([])
+  const [entries, setEntries] = useState([])
+  const [operations, setOperations] = useState([])
+  const [users, setUsers] = useState([])
+  const [rule, setRule] = useState(null)
+  const [busyId, setBusyId] = useState(null)
+  const [msg, setMsg] = useState(null)
+  const [detailId, setDetailId] = useState(null)
+  const [returning, setReturning] = useState(null)
+  const [reason, setReason] = useState('')
+
+  async function loadAll() {
+    const [p, e, o, r, u] = await Promise.all([
+      supabase.from('profiles').select('*').eq('status', 'pending').order('created_at'),
+      supabase
+        .from('production_entries')
+        .select('*, profiles!production_entries_worker_id_fkey(full_name), operations(name_ar)')
+        .in('status', ['draft', 'submitted'])
+        .order('created_at'),
+      supabase.from('operations').select('*').order('sort_order'),
+      supabase.from('incentive_rules').select('*').limit(1).maybeSingle(),
+      supabase.from('profiles').select('*').order('created_at', { ascending: false }),
+    ])
+    setPending(p.data ?? [])
+    setEntries(e.data ?? [])
+    setOperations(o.data ?? [])
+    setRule(r.data ?? null)
+    setUsers(u.data ?? [])
+  }
+
+  useEffect(() => {
+    loadAll()
+  }, [])
+
+  async function approve(id) {
+    setBusyId(id)
+    await supabase.from('profiles').update({ status: 'active', supervisor_id: user.id }).eq('id', id)
+    setBusyId(null)
+    loadAll()
+  }
+
+  async function reject(id) {
+    setBusyId(id)
+    await supabase.from('profiles').update({ status: 'rejected' }).eq('id', id)
+    setBusyId(null)
+    loadAll()
+  }
+
+  async function approveEntry(entry) {
+    setBusyId(entry.id)
+    const { error } = await supabase.rpc('fn_review_entry', {
+      p_entry_id: entry.id,
+      p_decision: 'approved',
+      p_reason: null,
+    })
+    setBusyId(null)
+    if (error) setMsg({ type: 'error', text: error.message })
+    else setMsg({ type: 'ok', text: 'تم اعتماد الإدخال — بانتظار إصدار الحسابات.' })
+    loadAll()
+  }
+
+  async function submitReturn(e) {
+    e.preventDefault()
+    if (!returning) return
+    setBusyId(returning.id)
+    const { error } = await supabase.rpc('fn_review_entry', {
+      p_entry_id: returning.id,
+      p_decision: 'rejected',
+      p_reason: reason.trim() || null,
+    })
+    setBusyId(null)
+    if (error) setMsg({ type: 'error', text: error.message })
+    else setMsg({ type: 'ok', text: 'تم إرجاع الإدخال للعامل عشان يعدّله.' })
+    setReturning(null)
+    setReason('')
+    loadAll()
+  }
+
+  async function saveWeights() {
+    setBusyId('weights')
+    for (const op of operations) {
+      await supabase.from('operations').update({ weight: Number(op.weight) }).eq('id', op.id)
+    }
+    setBusyId(null)
+    setMsg({ type: 'ok', text: 'تم حفظ الأوزان.' })
+  }
+
+  async function saveRule() {
+    if (!rule) return
+    setBusyId('rule')
+    await supabase
+      .from('incentive_rules')
+      .update({ unit_rate: Number(rule.unit_rate), updated_at: new Date().toISOString() })
+      .eq('id', rule.id)
+    setBusyId(null)
+    setMsg({ type: 'ok', text: 'تم حفظ سعر الوحدة.' })
+  }
+
+  function setOpWeight(id, value) {
+    setOperations((ops) => ops.map((o) => (o.id === id ? { ...o, weight: value } : o)))
+  }
+
+  function exportPendingEntries() {
+    exportXlsx({
+      filename: `yas-pending-entries_${toISODate(new Date())}.xlsx`,
+      sheetName: 'إدخالات للمراجعة',
+      title: 'إدخالات في انتظار المراجعة',
+      meta: [[`العدد: ${entries.length}`]],
+      headers: ['العامل', 'التاريخ', 'العملية', 'العدد', 'الملاحظة', 'الحالة'],
+      rows: entries.map((e) => [
+        e.profiles?.full_name ?? '-',
+        e.entry_date,
+        e.operations?.name_ar ?? '-',
+        e.quantity,
+        e.notes ?? '',
+        e.status,
+      ]),
+    })
+  }
+
+  function exportUsers() {
+    exportXlsx({
+      filename: `yas-users_${toISODate(new Date())}.xlsx`,
+      sheetName: 'المستخدمون',
+      title: 'قائمة المستخدمين',
+      meta: [[`العدد: ${users.length}`]],
+      headers: ['الاسم', 'الإيميل', 'الدور', 'الحالة', 'تاريخ الإنشاء'],
+      rows: users.map((u) => [u.full_name, u.email, u.role, u.status, formatDate(u.created_at)]),
+    })
+  }
+
+  async function updateUser(id, patch) {
+    setBusyId(id)
+    setMsg(null)
+    const { error } = await supabase.from('profiles').update(patch).eq('id', id)
+    setBusyId(null)
+    if (error) setMsg({ type: 'error', text: error.message })
+    else setMsg({ type: 'ok', text: 'تم تحديث بيانات المستخدم.' })
+    loadAll()
+  }
+
+  return (
+    <Layout title="لوحة المشرف">
+      <div className="flex gap-2 mb-4 overflow-x-auto -mx-1 px-1">
+        {TABS.map((t) => (
+          <button
+            key={t.key}
+            onClick={() => {
+              setTab(t.key)
+              setMsg(null)
+            }}
+            className={`${tab === t.key ? 'btn-primary' : 'btn-ghost'} shrink-0 whitespace-nowrap`}
+          >
+            {t.label}
+            {t.key === 'approvals' && pending.length > 0 && (
+              <span className="badge bg-white/20 text-inherit">{pending.length}</span>
+            )}
+            {t.key === 'release' && entries.length > 0 && (
+              <span className="badge bg-white/20 text-inherit">{entries.length}</span>
+            )}
+          </button>
+        ))}
+      </div>
+
+      {msg && (
+        <div className={`text-sm rounded-lg p-3 mb-4 ${msg.type === 'error' ? 'bg-red-50 text-red-700' : 'bg-emerald-50 text-emerald-700'}`}>
+          {msg.text}
+        </div>
+      )}
+
+      {tab === 'approvals' && (
+        <div className="card">
+          <h2 className="font-bold text-lg mb-3">طلبات تسجيل الحسابات</h2>
+          <div className="table-wrap">
+            <table className="table table-cards">
+              <thead>
+                <tr>
+                  <th>الاسم</th>
+                  <th>الإيميل</th>
+                  <th>تاريخ الطلب</th>
+                  <th>إجراء</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pending.length === 0 && (
+                  <tr>
+                    <td colSpan={4} className="text-center text-slate-400 py-6">
+                      مفيش طلبات جديدة
+                    </td>
+                  </tr>
+                )}
+                {pending.map((p) => (
+                  <tr key={p.id}>
+                    <td data-label="الاسم">{p.full_name}</td>
+                    <td data-label="الإيميل" dir="ltr" className="text-left">{p.email}</td>
+                    <td data-label="تاريخ الطلب">{formatDate(p.created_at)}</td>
+                    <td data-label="إجراء" className="space-x-2 space-x-reverse">
+                      <button disabled={busyId === p.id} onClick={() => approve(p.id)} className="btn-accent !py-1 !px-3 text-sm">
+                        موافقة
+                      </button>
+                      <button disabled={busyId === p.id} onClick={() => reject(p.id)} className="btn-danger !py-1 !px-3 text-sm">
+                        رفض
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {tab === 'release' && (
+        <div className="card">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <h2 className="font-bold text-lg">إدخالات في انتظار المراجعة</h2>
+            <button onClick={exportPendingEntries} disabled={entries.length === 0} className="btn-ghost !py-1.5 text-sm">
+              تصدير Excel
+            </button>
+          </div>
+          <div className="table-wrap">
+            <table className="table table-cards">
+              <thead>
+                <tr>
+                  <th>العامل</th>
+                  <th>التاريخ</th>
+                  <th>العملية</th>
+                  <th>العدد</th>
+                  <th>الملاحظة</th>
+                  <th>إجراء</th>
+                </tr>
+              </thead>
+              <tbody>
+                {entries.length === 0 && (
+                  <tr>
+                    <td colSpan={6} className="text-center text-slate-400 py-6">
+                      مفيش إدخالات معلّقة
+                    </td>
+                  </tr>
+                )}
+                {entries.map((e) => (
+                  <tr key={e.id} className="cursor-pointer hover:bg-slate-50" onClick={() => setDetailId(e.id)}>
+                    <td data-label="العامل">{e.profiles?.full_name ?? '-'}</td>
+                    <td data-label="التاريخ">{formatDate(e.entry_date)}</td>
+                    <td data-label="العملية">{e.operations?.name_ar ?? '-'}</td>
+                    <td data-label="العدد">{e.quantity}</td>
+                    <td data-label="الملاحظة" className="max-w-[220px] truncate" title={e.notes ?? ''}>{e.notes || '-'}</td>
+                    <td data-label="إجراء" onClick={(ev) => ev.stopPropagation()}>
+                      <div className="flex gap-2">
+                        <button onClick={() => setDetailId(e.id)} className="btn-ghost !py-1 !px-2 text-xs">
+                          تفاصيل
+                        </button>
+                        <button disabled={busyId === e.id} onClick={() => approveEntry(e)} className="btn-primary !py-1 !px-3 text-sm">
+                          اعتماد
+                        </button>
+                        <button
+                          disabled={busyId === e.id}
+                          onClick={() => setReturning(e)}
+                          className="btn-danger !py-1 !px-3 text-sm"
+                        >
+                          إرجاع
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {tab === 'users' && (
+        <div className="card">
+          <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+            <h2 className="font-bold text-lg">إدارة المستخدمين</h2>
+            <button onClick={exportUsers} disabled={users.length === 0} className="btn-ghost !py-1.5 text-sm">
+              تصدير Excel
+            </button>
+          </div>
+          <p className="text-xs text-slate-500 mb-3">
+            عدد المستخدمين: {users.length} — تقدر تفعّل/توقف أي حساب أو تغيّر الدور.
+          </p>
+          <div className="table-wrap">
+            <table className="table table-cards">
+              <thead>
+                <tr>
+                  <th>الاسم</th>
+                  <th>الإيميل</th>
+                  <th>الدور</th>
+                  <th>الحالة</th>
+                  <th>إجراء</th>
+                </tr>
+              </thead>
+              <tbody>
+                {users.length === 0 && (
+                  <tr>
+                    <td colSpan={5} className="text-center text-slate-400 py-6">مفيش مستخدمين</td>
+                  </tr>
+                )}
+                {users.map((u) => {
+                  const self = u.id === user.id
+                  return (
+                    <tr key={u.id}>
+                      <td data-label="الاسم">
+                        {u.full_name}
+                        {self && <span className="text-xs text-slate-400"> (إنت)</span>}
+                      </td>
+                      <td data-label="الإيميل" dir="ltr" className="text-left">{u.email}</td>
+                      <td data-label="الدور">
+                        <select
+                          className="input !w-32 !py-1 text-sm"
+                          value={u.role}
+                          disabled={busyId === u.id || self}
+                          onChange={(e) => updateUser(u.id, { role: e.target.value })}
+                        >
+                          <option value="worker">عامل</option>
+                          <option value="supervisor">مشرف</option>
+                          <option value="accountant">حسابات</option>
+                          <option value="management">إدارة</option>
+                        </select>
+                      </td>
+                      <td data-label="الحالة">
+                        <StatusBadge status={u.status} />
+                      </td>
+                      <td data-label="إجراء">
+                        <div className="flex gap-2">
+                          {u.status !== 'active' && (
+                            <button
+                              disabled={busyId === u.id}
+                              onClick={() => updateUser(u.id, { status: 'active' })}
+                              className="btn-accent !py-1 !px-3 text-xs"
+                            >
+                              تفعيل
+                            </button>
+                          )}
+                          {u.status === 'active' && (
+                            <button
+                              disabled={busyId === u.id || self}
+                              onClick={() => updateUser(u.id, { status: 'inactive' })}
+                              className="btn-danger !py-1 !px-3 text-xs"
+                            >
+                              إيقاف
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {tab === 'settings' && (
+        <div className="grid gap-6 md:grid-cols-2">
+          <div className="card">
+            <h2 className="font-bold text-lg mb-3">أوزان العمليات (Weighted)</h2>
+            <div className="space-y-3">
+              {operations.map((o) => (
+                <div key={o.id} className="flex items-center gap-3">
+                  <span className="flex-1 text-sm">
+                    {o.name_ar} <span className="text-slate-400 font-mono">({o.name_en})</span>
+                  </span>
+                  <input
+                    type="number"
+                    step="0.5"
+                    min="0"
+                    className="input w-24"
+                    value={o.weight}
+                    onChange={(e) => setOpWeight(o.id, e.target.value)}
+                  />
+                </div>
+              ))}
+            </div>
+            <button onClick={saveWeights} disabled={busyId === 'weights'} className="btn-accent w-full mt-4">
+              حفظ الأوزان
+            </button>
+          </div>
+
+          <div className="card h-fit">
+            <h2 className="font-bold text-lg mb-3">قاعدة الحافز</h2>
+            <p className="text-xs text-slate-500 mb-3">
+              الحافز = (مجموع العدد × الوزن) × سعر الوحدة
+            </p>
+            {rule ? (
+              <div className="space-y-3">
+                <div>
+                  <label className="label">سعر الوحدة ({rule.currency})</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.5"
+                    className="input"
+                    value={rule.unit_rate}
+                    onChange={(e) => setRule({ ...rule, unit_rate: e.target.value })}
+                  />
+                </div>
+                <button onClick={saveRule} disabled={busyId === 'rule'} className="btn-accent w-full">
+                  حفظ
+                </button>
+              </div>
+            ) : (
+              <p className="text-slate-400 text-sm">مفيش قاعدة معرّفة.</p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {returning && (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 md:items-center md:p-4"
+          onClick={() => setReturning(null)}
+          role="dialog"
+          aria-modal="true"
+        >
+          <form onSubmit={submitReturn} className="card max-h-[92vh] w-full overflow-y-auto rounded-b-none rounded-t-2xl md:my-8 md:max-w-lg md:rounded-xl" onClick={(ev) => ev.stopPropagation()}>
+            <h2 className="text-lg font-bold">إرجاع الإدخال للعامل</h2>
+            <p className="text-xs text-slate-500 mt-1 mb-4">
+              {returning.profiles?.full_name ?? 'العامل'} — {returning.operations?.name_ar ?? ''} · العدد {returning.quantity}
+            </p>
+            <label className="label">سبب الإرجاع (اختياري)</label>
+            <textarea
+              className="input"
+              rows={3}
+              autoFocus
+              value={reason}
+              onChange={(ev) => setReason(ev.target.value)}
+              placeholder="مثال: عدد اللابات غير مطابق للسيريالات…"
+            />
+            <div className="mt-4 flex justify-end gap-2">
+              <button type="button" onClick={() => setReturning(null)} className="btn-ghost">
+                إلغاء
+              </button>
+              <button type="submit" disabled={busyId === returning.id} className="btn-danger">
+                {busyId === returning.id ? 'جاري الإرجاع…' : 'تأكيد الإرجاع'}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {detailId && (
+        <EntryDetails
+          entryId={detailId}
+          onClose={() => setDetailId(null)}
+          onApprove={async (entry) => {
+            await approveEntry(entry)
+            setDetailId(null)
+          }}
+        />
+      )}
+    </Layout>
+  )
+}
