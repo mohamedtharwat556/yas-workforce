@@ -1,6 +1,15 @@
 // Service Worker — تخزين مؤقت للأصول + شاشة أساسية عند انقطاع الشبكة
-const CACHE = 'yas-workforce-v1'
+const CACHE = 'yas-workforce-v2'
 const APP_SHELL = ['/', '/index.html', '/manifest.webmanifest']
+
+// رد احتياطي مضمون (لازم نرجّع Response دايمًا وإلا respondWith هيفشل)
+function offlineFallback() {
+  return new Response('<!doctype html><meta charset="utf-8"><title>غير متصل</title>', {
+    status: 503,
+    statusText: 'Offline',
+    headers: { 'Content-Type': 'text/html; charset=utf-8' },
+  })
+}
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -29,7 +38,10 @@ self.addEventListener('fetch', (event) => {
   // التنقّل: جرّب الشبكة، ولو فشلت ارجع للواجهة المخزّنة
   if (req.mode === 'navigate') {
     event.respondWith(
-      fetch(req).catch(() => caches.match('/index.html').then((r) => r || caches.match('/')))
+      fetch(req).catch(async () => {
+        const cached = (await caches.match('/index.html')) || (await caches.match('/'))
+        return cached || offlineFallback()
+      })
     )
     return
   }
@@ -46,7 +58,7 @@ self.addEventListener('fetch', (event) => {
           }
           return res
         })
-        .catch(() => cached)
+        .catch(() => cached || offlineFallback())
     })
   )
 })

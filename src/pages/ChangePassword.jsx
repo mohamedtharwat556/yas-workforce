@@ -61,6 +61,8 @@ export default function ChangePassword() {
               required
               className="input"
               dir="ltr"
+              name="new-password"
+              autoComplete="new-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="••••••"
@@ -73,6 +75,8 @@ export default function ChangePassword() {
               required
               className="input"
               dir="ltr"
+              name="confirm-password"
+              autoComplete="new-password"
               value={confirm}
               onChange={(e) => setConfirm(e.target.value)}
               placeholder="••••••"
