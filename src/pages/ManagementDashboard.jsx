@@ -13,7 +13,7 @@ import {
 import Layout from '../components/Layout'
 import StatusBadge from '../components/StatusBadge'
 import { supabase } from '../lib/supabase'
-import { formatDate, formatNumber, startOfMonth, toISODate } from '../lib/dates'
+import { formatDate, formatNumber, startOfMonth, toISODate, entryUnits } from '../lib/dates'
 import { exportXlsx } from '../lib/xlsx'
 import { printReport } from '../lib/report'
 
@@ -104,7 +104,7 @@ export default function ManagementDashboard() {
     const { data } = await supabase
       .from('production_entries')
       .select(
-        'entry_date, quantity, status, laptop_id, worker_id, profiles!production_entries_worker_id_fkey(full_name), operations(name_ar, weight)'
+        'entry_date, quantity, status, laptop_id, worker_id, profiles!production_entries_worker_id_fkey(full_name), operations(name_ar, weight), entry_operations(quantity, operations(name_ar, weight))'
       )
       .gte('entry_date', prevRange.start)
       .lte('entry_date', to)
@@ -135,7 +135,7 @@ export default function ManagementDashboard() {
       const laptopsSet = new Set()
       let units = 0
       for (const e of list) {
-        const u = Number(e.quantity ?? 0) * Number(e.operations?.weight ?? 0)
+        const u = entryUnits(e)
         units += u
         status[e.status] = (status[e.status] ?? 0) + 1
         if (e.laptop_id) laptopsSet.add(e.laptop_id)

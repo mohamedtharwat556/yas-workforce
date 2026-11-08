@@ -5,7 +5,7 @@ import StatusBadge from '../components/StatusBadge'
 import QRScannerModal from '../components/QRScannerModal'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
-import { formatDate } from '../lib/dates'
+import { formatDate, formatNumber, entryOperationNames, entryTotalQty } from '../lib/dates'
 
 // أدوار مسموح لها تضيف لاب
 const CAN_CREATE = ['worker', 'supervisor', 'accountant']
@@ -84,7 +84,7 @@ export default function LaptopJourney() {
         .order('created_at'),
       supabase
         .from('production_entries')
-        .select('*, operations(name_ar)')
+        .select('*, operations(name_ar), entry_operations(operation_id, quantity, operations(name_ar, weight))')
         .eq('laptop_id', id)
         .order('created_at'),
     ])
@@ -233,19 +233,29 @@ export default function LaptopJourney() {
     if (!op) return
     setBusy(true)
     setMsg(null)
-    const { error } = await supabase.from('production_entries').insert({
-      worker_id: user.id,
-      operation_id: op.id,
-      laptop_id: selectedId,
-      stage_code: selected?.current_stage ?? null,
-      quantity: Number(opQty) || 1,
-      status: 'draft',
-    })
-    setBusy(false)
+    const qty = Number(opQty) || 1
+    const { data: created, error } = await supabase
+      .from('production_entries')
+      .insert({
+        worker_id: user.id,
+        operation_id: op.id,
+        laptop_id: selectedId,
+        stage_code: selected?.current_stage ?? null,
+        quantity: qty,
+        status: 'draft',
+      })
+      .select('id')
+      .single()
     if (error) {
+      setBusy(false)
       flash('error', error.message)
       return
     }
+    // بند الإدخال (نفس العملية والعدد) — عشان يظهر في التفاصيل ويُحسب في الحافز
+    await supabase
+      .from('entry_operations')
+      .insert({ entry_id: created.id, operation_id: op.id, quantity: qty })
+    setBusy(false)
     setOpQty(1)
     flash('ok', 'تم تسجيل العملية على اللاب (مسودّة).')
     await loadDetail(selectedId)
@@ -537,8 +547,8 @@ export default function LaptopJourney() {
                       )}
                       {entries.map((e) => (
                         <tr key={e.id}>
-                          <td data-label="العملية">{e.operations?.name_ar ?? '-'}</td>
-                          <td data-label="العدد">{e.quantity}</td>
+                          <td data-label="العملية">{entryOperationNames(e)}</td>
+                          <td data-label="العدد">{formatNumber(entryTotalQty(e))}</td>
                           <td data-label="الحالة">
                             <StatusBadge status={e.status} />
                           </td>

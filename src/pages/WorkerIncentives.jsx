@@ -3,7 +3,7 @@ import Layout from '../components/Layout'
 import StatusBadge from '../components/StatusBadge'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
-import { formatDate, formatNumber, startOfMonth, startOfWeek, toISODate } from '../lib/dates'
+import { formatDate, formatNumber, startOfMonth, startOfWeek, toISODate, entryLines, entryUnits, entryOperationNames } from '../lib/dates'
 import { exportXlsx } from '../lib/xlsx'
 import { printReport } from '../lib/report'
 
@@ -21,7 +21,7 @@ export default function WorkerIncentives() {
       const [e, r] = await Promise.all([
         supabase
           .from('production_entries')
-          .select('*, operations(name_ar, weight)')
+          .select('*, operations(name_ar, weight), entry_operations(operation_id, quantity, operations(name_ar, weight))')
           .eq('worker_id', user.id)
           .eq('status', 'released')
           .order('entry_date', { ascending: false }),
@@ -46,11 +46,8 @@ export default function WorkerIncentives() {
     const weekStart = toISODate(startOfWeek())
     const monthStart = toISODate(startOfMonth())
     const calc = (rows) => {
-      const laps = rows.reduce((s, e) => s + Number(e.quantity), 0)
-      const units = rows.reduce(
-        (s, e) => s + Number(e.quantity) * Number(e.operations?.weight ?? 0),
-        0
-      )
+      const laps = rows.reduce((s, e) => s + entryLines(e).reduce((a, l) => a + l.quantity, 0), 0)
+      const units = rows.reduce((s, e) => s + entryUnits(e), 0)
       return { laps, units, incentive: units * rate }
     }
     return {
@@ -67,13 +64,13 @@ export default function WorkerIncentives() {
     const map = new Map()
     for (const e of entries) {
       if (e.entry_date < monthStart) continue
-      const name = e.operations?.name_ar ?? 'غير معروف'
-      const weight = Number(e.operations?.weight ?? 0)
-      const qty = Number(e.quantity)
-      if (!map.has(name)) map.set(name, { name, laps: 0, units: 0 })
-      const row = map.get(name)
-      row.laps += qty
-      row.units += qty * weight
+      for (const l of entryLines(e)) {
+        const name = l.name
+        if (!map.has(name)) map.set(name, { name, laps: 0, units: 0 })
+        const row = map.get(name)
+        row.laps += l.quantity
+        row.units += l.quantity * l.weight
+      }
     }
     return Array.from(map.values())
       .map((r) => ({ ...r, incentive: r.units * rate }))
@@ -92,8 +89,9 @@ export default function WorkerIncentives() {
       ],
       headers: ['التاريخ', 'العملية', 'العدد', 'وحدات مرجّحة', `الحافز (${currency})`, 'الحالة'],
       rows: entries.map((e) => {
-        const units = Number(e.quantity) * Number(e.operations?.weight ?? 0)
-        return [e.entry_date, e.operations?.name_ar ?? '-', Number(e.quantity), units, units * rate, e.status]
+        const units = entryUnits(e)
+        const qty = entryLines(e).reduce((s, l) => s + l.quantity, 0)
+        return [e.entry_date, entryOperationNames(e), qty, units, units * rate, e.status]
       }),
       footer: ['', '', '', '', stats.all.incentive, ''],
     })
@@ -203,12 +201,13 @@ export default function WorkerIncentives() {
                   </tr>
                 )}
                 {entries.slice(0, 30).map((e) => {
-                  const units = Number(e.quantity) * Number(e.operations?.weight ?? 0)
+                  const units = entryUnits(e)
+                  const qty = entryLines(e).reduce((s, l) => s + l.quantity, 0)
                   return (
                     <tr key={e.id}>
                       <td data-label="التاريخ">{formatDate(e.entry_date)}</td>
-                      <td data-label="العملية">{e.operations?.name_ar ?? '-'}</td>
-                      <td data-label="العدد">{formatNumber(e.quantity)}</td>
+                      <td data-label="العملية">{entryOperationNames(e)}</td>
+                      <td data-label="العدد">{formatNumber(qty)}</td>
                       <td data-label="وحدات">{formatNumber(units)}</td>
                       <td data-label="الحافز" className="font-medium">{formatNumber(units * rate)}</td>
                       <td data-label="الحالة">

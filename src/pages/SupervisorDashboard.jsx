@@ -4,7 +4,7 @@ import StatusBadge from '../components/StatusBadge'
 import EntryDetails from '../components/EntryDetails'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
-import { formatDate, toISODate } from '../lib/dates'
+import { formatDate, formatNumber, toISODate, entryOperationNames, entryTotalQty } from '../lib/dates'
 import { exportXlsx } from '../lib/xlsx'
 
 const TABS = [
@@ -33,7 +33,7 @@ export default function SupervisorDashboard() {
       supabase.from('profiles').select('*').eq('status', 'pending').order('created_at'),
       supabase
         .from('production_entries')
-        .select('*, profiles!production_entries_worker_id_fkey(full_name), operations(name_ar)')
+        .select('*, profiles!production_entries_worker_id_fkey(full_name), operations(name_ar), entry_operations(operation_id, quantity, operations(name_ar, weight))')
         .in('status', ['draft', 'submitted'])
         .order('created_at'),
       supabase.from('operations').select('*').order('sort_order'),
@@ -129,8 +129,8 @@ export default function SupervisorDashboard() {
       rows: entries.map((e) => [
         e.profiles?.full_name ?? '-',
         e.entry_date,
-        e.operations?.name_ar ?? '-',
-        e.quantity,
+        entryOperationNames(e),
+        entryTotalQty(e),
         e.notes ?? '',
         e.status,
       ]),
@@ -261,8 +261,8 @@ export default function SupervisorDashboard() {
                   <tr key={e.id} className="cursor-pointer hover:bg-slate-50" onClick={() => setDetailId(e.id)}>
                     <td data-label="العامل">{e.profiles?.full_name ?? '-'}</td>
                     <td data-label="التاريخ">{formatDate(e.entry_date)}</td>
-                    <td data-label="العملية">{e.operations?.name_ar ?? '-'}</td>
-                    <td data-label="العدد">{e.quantity}</td>
+                    <td data-label="العملية">{entryOperationNames(e)}</td>
+                    <td data-label="العدد">{formatNumber(entryTotalQty(e))}</td>
                     <td data-label="الملاحظة" className="max-w-[220px] truncate" title={e.notes ?? ''}>{e.notes || '-'}</td>
                     <td data-label="إجراء" onClick={(ev) => ev.stopPropagation()}>
                       <div className="flex gap-2">
@@ -438,7 +438,7 @@ export default function SupervisorDashboard() {
           <form onSubmit={submitReturn} className="card max-h-[92vh] w-full overflow-y-auto rounded-b-none rounded-t-2xl md:my-8 md:max-w-lg md:rounded-xl" onClick={(ev) => ev.stopPropagation()}>
             <h2 className="text-lg font-bold">إرجاع الإدخال للعامل</h2>
             <p className="text-xs text-slate-500 mt-1 mb-4">
-              {returning.profiles?.full_name ?? 'العامل'} — {returning.operations?.name_ar ?? ''} · العدد {returning.quantity}
+              {returning.profiles?.full_name ?? 'العامل'} — {entryOperationNames(returning)} · العدد {formatNumber(entryTotalQty(returning))}
             </p>
             <label className="label">سبب الإرجاع (اختياري)</label>
             <textarea

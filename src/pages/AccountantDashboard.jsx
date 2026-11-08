@@ -13,7 +13,7 @@ import {
 import Layout from '../components/Layout'
 import EntryDetails from '../components/EntryDetails'
 import { supabase } from '../lib/supabase'
-import { formatDate, formatNumber, startOfMonth, startOfWeek, toISODate } from '../lib/dates'
+import { formatDate, formatNumber, startOfMonth, startOfWeek, toISODate, entryLines, entryUnits } from '../lib/dates'
 import { printReport } from '../lib/report'
 import { exportXlsx } from '../lib/xlsx'
 
@@ -59,7 +59,7 @@ export default function AccountantDashboard() {
         supabase.from('profiles').select('id', { count: 'exact', head: true }).eq('status', 'active'),
         supabase
           .from('production_entries')
-          .select('entry_date, quantity, operations(weight)')
+          .select('entry_date, quantity, operations(weight), entry_operations(quantity, operations(weight))')
           .eq('status', 'released')
           .gte('entry_date', toISODate(from)),
       ])
@@ -74,8 +74,8 @@ export default function AccountantDashboard() {
       const calc = (pred) => {
         const r = list.filter(pred)
         return {
-          laps: r.reduce((s, x) => s + Number(x.quantity), 0),
-          units: r.reduce((s, x) => s + Number(x.quantity) * Number(x.operations?.weight ?? 0), 0),
+          laps: r.reduce((s, x) => s + entryLines(x).reduce((a, l) => a + l.quantity, 0), 0),
+          units: r.reduce((s, x) => s + entryUnits(x), 0),
         }
       }
       setOverview({
@@ -97,7 +97,7 @@ export default function AccountantDashboard() {
       const [e, r, rep, per] = await Promise.all([
         supabase
           .from('production_entries')
-          .select('*, profiles!production_entries_worker_id_fkey(full_name), operations(name_ar, weight)')
+          .select('*, profiles!production_entries_worker_id_fkey(full_name), operations(name_ar, weight), entry_operations(operation_id, quantity, operations(name_ar, weight))')
           .eq('status', 'released')
           .gte('entry_date', range.start)
           .lte('entry_date', range.end),
@@ -128,7 +128,7 @@ export default function AccountantDashboard() {
     () =>
       entries.filter(
         (e) =>
-          (!opFilter || String(e.operation_id) === opFilter) &&
+          (!opFilter || entryLines(e).some((l) => String(l.operation_id) === String(opFilter))) &&
           (!workerFilter || e.worker_id === workerFilter)
       ),
     [entries, opFilter, workerFilter]
@@ -147,12 +147,13 @@ export default function AccountantDashboard() {
     for (const e of filtered) {
       const id = e.worker_id
       const name = e.profiles?.full_name ?? 'غير معروف'
-      const weight = Number(e.operations?.weight ?? 0)
-      const qty = Number(e.quantity)
+      const lines = entryLines(e)
+      const qty = lines.reduce((s, l) => s + l.quantity, 0)
+      const units = lines.reduce((s, l) => s + l.quantity * l.weight, 0)
       if (!map.has(id)) map.set(id, { id, name, laps: 0, units: 0 })
       const row = map.get(id)
       row.laps += qty
-      row.units += qty * weight
+      row.units += units
     }
     const rate = Number(rule?.unit_rate ?? 0)
     return Array.from(map.values())
@@ -189,13 +190,13 @@ export default function AccountantDashboard() {
   const byOperation = useMemo(() => {
     const map = new Map()
     for (const e of filtered) {
-      const name = e.operations?.name_ar ?? 'غير معروف'
-      const weight = Number(e.operations?.weight ?? 0)
-      const qty = Number(e.quantity)
-      if (!map.has(name)) map.set(name, { name, laps: 0, units: 0 })
-      const row = map.get(name)
-      row.laps += qty
-      row.units += qty * weight
+      for (const l of entryLines(e)) {
+        const name = l.name
+        if (!map.has(name)) map.set(name, { name, laps: 0, units: 0 })
+        const row = map.get(name)
+        row.laps += l.quantity
+        row.units += l.quantity * l.weight
+      }
     }
     return Array.from(map.values()).sort((a, b) => b.units - a.units)
   }, [filtered])
@@ -205,12 +206,11 @@ export default function AccountantDashboard() {
     const map = new Map()
     for (const e of filtered) {
       const day = e.entry_date
-      const weight = Number(e.operations?.weight ?? 0)
-      const qty = Number(e.quantity)
       if (!map.has(day)) map.set(day, { date: day, label: formatDate(day), laps: 0, units: 0 })
       const row = map.get(day)
-      row.laps += qty
-      row.units += qty * weight
+      const lines = entryLines(e)
+      row.laps += lines.reduce((s, l) => s + l.quantity, 0)
+      row.units += lines.reduce((s, l) => s + l.quantity * l.weight, 0)
     }
     return Array.from(map.values()).sort((a, b) => a.date.localeCompare(b.date))
   }, [filtered])
@@ -278,8 +278,10 @@ export default function AccountantDashboard() {
           workers: rows.map((r) => ({ name: r.name, laps: r.laps, units: r.units })),
           entries: filtered.map((e) => ({
             worker: e.profiles?.full_name,
-            operation: e.operations?.name_ar,
-            quantity: e.quantity,
+            operation: entryLines(e)
+              .map((l) => `${l.name} × ${l.quantity}`)
+              .join(' + '),
+            quantity: entryLines(e).reduce((s, l) => s + l.quantity, 0),
             date: e.entry_date,
             notes: e.notes,
           })),
@@ -554,9 +556,13 @@ function WorkerEntriesModal({ worker, entries, onClose, onOpenEntry }) {
               {entries.map((e) => (
                 <tr key={e.id}>
                   <td data-label="التاريخ">{formatDate(e.entry_date)}</td>
-                  <td data-label="العملية">{e.operations?.name_ar ?? '-'}</td>
-                  <td data-label="العدد">{formatNumber(e.quantity)}</td>
-                  <td data-label="وحدات">{formatNumber(Number(e.quantity) * Number(e.operations?.weight ?? 0))}</td>
+                  <td data-label="العملية">
+                    {entryLines(e)
+                      .map((l) => `${l.name} × ${l.quantity}`)
+                      .join(' + ')}
+                  </td>
+                  <td data-label="العدد">{formatNumber(entryLines(e).reduce((s, l) => s + l.quantity, 0))}</td>
+                  <td data-label="وحدات">{formatNumber(entryUnits(e))}</td>
                   <td data-label="الملاحظة" className="max-w-[200px] truncate" title={e.notes ?? ''}>{e.notes || '-'}</td>
                   <td data-label="إجراء">
                     <button onClick={() => onOpenEntry(e.id)} className="btn-ghost !py-1 !px-2 text-xs">

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import StatusBadge from './StatusBadge'
 import { supabase } from '../lib/supabase'
-import { formatDate, formatNumber } from '../lib/dates'
+import { formatDate, formatNumber, entryLines, entryOperationNames } from '../lib/dates'
 
 // نافذة تفاصيل الإدخال: العملية + السيريالات + الملاحظات + الصور
 export default function EntryDetails({ entryId, onClose, onApprove }) {
@@ -20,7 +20,7 @@ export default function EntryDetails({ entryId, onClose, onApprove }) {
         supabase
           .from('production_entries')
           .select(
-            '*, profiles!production_entries_worker_id_fkey(full_name), operations(name_ar, name_en, weight)'
+            '*, profiles!production_entries_worker_id_fkey(full_name), operations(name_ar, name_en, weight), entry_operations(quantity, operations(name_ar, name_en, weight))'
           )
           .eq('id', entryId)
           .single(),
@@ -64,8 +64,9 @@ export default function EntryDetails({ entryId, onClose, onApprove }) {
     return () => window.removeEventListener('keydown', onKey)
   }, [onClose])
 
-  const weight = Number(entry?.operations?.weight ?? 0)
-  const units = Number(entry?.quantity ?? 0) * weight
+  const lines = entry ? entryLines(entry) : []
+  const totalQty = lines.reduce((s, l) => s + l.quantity, 0)
+  const totalUnits = lines.reduce((s, l) => s + l.quantity * l.weight, 0)
 
   return (
     <div
@@ -94,10 +95,35 @@ export default function EntryDetails({ entryId, onClose, onApprove }) {
               <Field label="العامل" value={entry.profiles?.full_name ?? '-'} />
               <Field label="التاريخ" value={formatDate(entry.entry_date)} />
               <Field label="الحالة" value={<StatusBadge status={entry.status} />} />
-              <Field label="العملية" value={entry.operations?.name_ar ?? '-'} />
-              <Field label="العدد" value={formatNumber(entry.quantity)} />
-              <Field label="الوحدات المرجّحة" value={`${formatNumber(units)} (وزن ${weight})`} />
+              <Field label="العمليات" value={entryOperationNames(entry)} />
+              <Field label="عدد اللابات" value={formatNumber(totalQty)} />
+              <Field label="الوحدات المرجّحة" value={formatNumber(totalUnits)} />
             </div>
+
+            <Section title={`العمليات (${lines.length})`}>
+              <div className="table-wrap">
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th>العملية</th>
+                      <th>العدد</th>
+                      <th>الوزن</th>
+                      <th>وحدات</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {lines.map((l, i) => (
+                      <tr key={`${l.operation_id}-${i}`}>
+                        <td>{l.name}</td>
+                        <td>{formatNumber(l.quantity)}</td>
+                        <td>{formatNumber(l.weight)}</td>
+                        <td>{formatNumber(l.quantity * l.weight)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </Section>
 
             <Section title={`السيريالات (${serials.length})`}>
               {serials.length === 0 ? (

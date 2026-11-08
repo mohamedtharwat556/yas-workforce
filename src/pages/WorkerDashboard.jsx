@@ -4,29 +4,35 @@ import StatusBadge from '../components/StatusBadge'
 import EntryDetails from '../components/EntryDetails'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
-import { formatDate, formatNumber, startOfMonth, startOfWeek, toISODate, weightedUnits } from '../lib/dates'
+import {
+  entryOperationNames,
+  entryTotalQty,
+  formatDate,
+  formatNumber,
+  startOfMonth,
+  startOfWeek,
+  toISODate,
+  weightedUnits,
+} from '../lib/dates'
 import { compressImage } from '../lib/image'
 
-// بنفتكر آخر عملية واتجاه سيريال اختارهم العامل عشان نسرّع الإدخال عليه
+// بنفتكر اتجاه السيريال اللي اختاره العامل عشان نسرّع الإدخال عليه
 const LAST_KEY = 'yas:lastEntry'
 
 function readLast() {
   try {
     const v = JSON.parse(localStorage.getItem(LAST_KEY) || '{}')
-    return {
-      operation_id: v.operation_id ? String(v.operation_id) : '',
-      direction: v.direction === 'in' ? 'in' : 'out',
-    }
+    return { direction: v.direction === 'in' ? 'in' : 'out' }
   } catch {
-    return { operation_id: '', direction: 'out' }
+    return { direction: 'out' }
   }
 }
 
 function emptyForm(overrides = {}) {
   const last = readLast()
   return {
-    operation_id: last.operation_id,
-    quantity: '',
+    // بنود الإدخال: كل بند = نوع عملية + عدد (ممكن يكونوا أكتر من واحد)
+    lines: [],
     entry_date: toISODate(new Date()),
     notes: '',
     serials: '',
@@ -47,11 +53,6 @@ export default function WorkerDashboard() {
   const [detailId, setDetailId] = useState(null)
   const [editingId, setEditingId] = useState(null)
 
-  const operationsById = useMemo(
-    () => Object.fromEntries(operations.map((o) => [o.id, o])),
-    [operations]
-  )
-
   async function loadOperations() {
     const { data } = await supabase
       .from('operations')
@@ -64,7 +65,7 @@ export default function WorkerDashboard() {
   async function loadEntries() {
     const { data } = await supabase
       .from('production_entries')
-      .select('*, operations(name_ar, name_en, weight)')
+      .select('*, operations(name_ar, name_en, weight), entry_operations(operation_id, quantity, operations(name_ar, weight))')
       .eq('worker_id', user.id)
       .order('entry_date', { ascending: false })
       .order('created_at', { ascending: false })
@@ -78,14 +79,6 @@ export default function WorkerDashboard() {
     loadEntries()
   }, [user])
 
-  // لو آخر عملية محفوظة اتشالت أو بقت غير مفعّلة، نمسحها من النموذج
-  useEffect(() => {
-    if (!form.operation_id || !operations.length) return
-    if (!operations.some((o) => String(o.id) === String(form.operation_id))) {
-      setForm((f) => ({ ...f, operation_id: '' }))
-    }
-  }, [operations])
-
   const released = useMemo(() => entries.filter((e) => e.status === 'released'), [entries])
 
   const summary = useMemo(() => {
@@ -95,8 +88,8 @@ export default function WorkerDashboard() {
     const bucket = (from, mode) => {
       const rows = released.filter((e) => (mode === 'day' ? e.entry_date === from : e.entry_date >= from))
       return {
-        laps: rows.reduce((s, e) => s + Number(e.quantity), 0),
-        units: weightedUnits(rows, operationsById),
+        laps: rows.reduce((s, e) => s + entryTotalQty(e), 0),
+        units: weightedUnits(rows),
       }
     }
     return {
@@ -104,10 +97,26 @@ export default function WorkerDashboard() {
       week: bucket(weekStart, 'range'),
       month: bucket(monthStart, 'range'),
     }
-  }, [released, operationsById])
+  }, [released])
 
   function update(field, value) {
     setForm((f) => ({ ...f, [field]: value }))
+  }
+
+  // بنود الإدخال (اختيار أكتر من عملية)
+  function toggleLine(opId, checked) {
+    setForm((f) => {
+      if (!checked) return { ...f, lines: f.lines.filter((l) => String(l.operation_id) !== String(opId)) }
+      if (f.lines.some((l) => String(l.operation_id) === String(opId))) return f
+      return { ...f, lines: [...f.lines, { operation_id: String(opId), quantity: '' }] }
+    })
+  }
+
+  function setLineQty(opId, qty) {
+    setForm((f) => ({
+      ...f,
+      lines: f.lines.map((l) => (String(l.operation_id) === String(opId) ? { ...l, quantity: qty } : l)),
+    }))
   }
 
   // ضغط الصور المختارة/المصوّرة قبل الإضافة
@@ -131,9 +140,15 @@ export default function WorkerDashboard() {
   async function handleSubmit(e) {
     e.preventDefault()
     setMsg(null)
-    if (!form.operation_id) return setMsg({ type: 'error', text: 'اختار نوع العملية.' })
-    const qty = Number(form.quantity)
-    if (!qty || qty <= 0) return setMsg({ type: 'error', text: 'اكتب عدد لابات صحيح.' })
+
+    // بنود الإدخال: كل بند لازم عدد صحيح > 0
+    const lines = form.lines
+      .filter((l) => l.operation_id)
+      .map((l) => ({ operation_id: Number(l.operation_id), quantity: Number(l.quantity) }))
+    if (!lines.length) return setMsg({ type: 'error', text: 'اختار نوع عملية واحد على الأقل.' })
+    if (lines.some((l) => !l.quantity || l.quantity <= 0)) {
+      return setMsg({ type: 'error', text: 'اكتب عدد صحيح لكل عملية اخترتها.' })
+    }
 
     const wasEdit = Boolean(editingId)
     setBusy(true)
@@ -150,10 +165,12 @@ export default function WorkerDashboard() {
         uploaded.push({ storage_path: path, file_type: file.type })
       }
 
+      // الأعمدة القديمة (operation_id/quantity) بنسيبها = أول بند/الإجمالي
+      // عشان أي شاشة قديمة تفضل شغالة.
       const base = {
-        operation_id: Number(form.operation_id),
+        operation_id: lines[0].operation_id,
         entry_date: form.entry_date,
-        quantity: qty,
+        quantity: lines.reduce((s, l) => s + l.quantity, 0),
         notes: form.notes || null,
       }
 
@@ -165,8 +182,9 @@ export default function WorkerDashboard() {
           .eq('id', entryId)
         if (upErr) throw upErr
 
-        // استبدل السيريالات بالكامل
+        // استبدل السيريالات والبنود بالكامل
         await supabase.from('lap_serials').delete().eq('entry_id', entryId)
+        await supabase.from('entry_operations').delete().eq('entry_id', entryId)
       } else {
         // 2) أنشئ الإدخال
         const { error: entryError } = await supabase
@@ -174,6 +192,12 @@ export default function WorkerDashboard() {
           .insert({ id: entryId, worker_id: user.id, ...base, status: 'draft' })
         if (entryError) throw entryError
       }
+
+      // 2.1) بنود الإدخال (العمليات)
+      const { error: linesError } = await supabase
+        .from('entry_operations')
+        .insert(lines.map((l) => ({ entry_id: entryId, operation_id: l.operation_id, quantity: l.quantity })))
+      if (linesError) throw linesError
 
       // 3) السيريالات
       const serials = form.serials
@@ -195,10 +219,7 @@ export default function WorkerDashboard() {
         if (error) throw error
       }
 
-      localStorage.setItem(
-        LAST_KEY,
-        JSON.stringify({ operation_id: String(form.operation_id), direction: form.direction })
-      )
+      localStorage.setItem(LAST_KEY, JSON.stringify({ direction: form.direction }))
       setForm(emptyForm({ entry_date: form.entry_date }))
       setFiles([])
       setEditingId(null)
@@ -218,18 +239,27 @@ export default function WorkerDashboard() {
 
   async function startEdit(entry) {
     setMsg(null)
-    const { data } = await supabase
-      .from('lap_serials')
-      .select('serial, direction')
-      .eq('entry_id', entry.id)
-      .order('created_at')
+    const [serialsRes, linesRes] = await Promise.all([
+      supabase
+        .from('lap_serials')
+        .select('serial, direction')
+        .eq('entry_id', entry.id)
+        .order('created_at'),
+      supabase
+        .from('entry_operations')
+        .select('operation_id, quantity')
+        .eq('entry_id', entry.id),
+    ])
+    const serials = serialsRes.data ?? []
+    const lines = (linesRes.data ?? []).length
+      ? linesRes.data
+      : [{ operation_id: entry.operation_id, quantity: entry.quantity }]
     setForm({
-      operation_id: String(entry.operation_id),
-      quantity: String(entry.quantity),
+      lines: lines.map((l) => ({ operation_id: String(l.operation_id), quantity: String(l.quantity) })),
       entry_date: entry.entry_date,
       notes: entry.notes ?? '',
-      serials: (data ?? []).map((s) => s.serial).join('\n'),
-      direction: data?.[0]?.direction ?? 'out',
+      serials: serials.map((s) => s.serial).join('\n'),
+      direction: serials[0]?.direction ?? 'out',
     })
     setFiles([])
     setEditingId(entry.id)
@@ -289,26 +319,42 @@ export default function WorkerDashboard() {
           )}
 
           <div>
-            <label className="label">نوع العملية</label>
-            <select required className="input" value={form.operation_id} onChange={(e) => update('operation_id', e.target.value)}>
-              <option value="">— اختار —</option>
-              {operations.map((o) => (
-                <option key={o.id} value={o.id}>
-                  {o.name_ar} (وزن {o.weight})
-                </option>
-              ))}
-            </select>
+            <label className="label">نوع العملية (تقدر تختار أكتر من واحدة)</label>
+            <div className="space-y-2">
+              {operations.map((o) => {
+                const line = form.lines.find((l) => String(l.operation_id) === String(o.id))
+                const checked = Boolean(line)
+                return (
+                  <div
+                    key={o.id}
+                    className={`flex items-center gap-3 rounded-lg border px-3 py-2 ${checked ? 'border-blue-300 bg-blue-50' : 'border-slate-200'}`}
+                  >
+                    <label className="flex flex-1 cursor-pointer items-center gap-2">
+                      <input type="checkbox" checked={checked} onChange={(e) => toggleLine(o.id, e.target.checked)} />
+                      <span className="text-sm">
+                        {o.name_ar} <span className="text-slate-400">(وزن {o.weight})</span>
+                      </span>
+                    </label>
+                    {checked && (
+                      <input
+                        type="number"
+                        min="1"
+                        className="input !w-24"
+                        placeholder="العدد"
+                        value={line.quantity}
+                        onChange={(e) => setLineQty(o.id, e.target.value)}
+                      />
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+            <p className="mt-1 text-xs text-slate-400">حدّد العملية وأكتب عددها — تقدر تحدّد أكتر من عملية في نفس الإدخال.</p>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="label">عدد اللابات</label>
-              <input type="number" min="1" required className="input" value={form.quantity} onChange={(e) => update('quantity', e.target.value)} />
-            </div>
-            <div>
-              <label className="label">التاريخ</label>
-              <input type="date" required className="input" value={form.entry_date} onChange={(e) => update('entry_date', e.target.value)} />
-            </div>
+          <div>
+            <label className="label">التاريخ</label>
+            <input type="date" required className="input" value={form.entry_date} onChange={(e) => update('entry_date', e.target.value)} />
           </div>
 
           <div>
@@ -421,8 +467,8 @@ export default function WorkerDashboard() {
                 {entries.map((e) => (
                   <tr key={e.id} className="cursor-pointer hover:bg-slate-50" onClick={() => setDetailId(e.id)}>
                     <td data-label="التاريخ">{formatDate(e.entry_date)}</td>
-                    <td data-label="العملية">{e.operations?.name_ar ?? '-'}</td>
-                    <td data-label="العدد">{e.quantity}</td>
+                    <td data-label="العملية">{entryOperationNames(e)}</td>
+                    <td data-label="العدد">{formatNumber(entryTotalQty(e))}</td>
                     <td data-label="الملاحظة" className="max-w-[200px] truncate" title={e.notes ?? ''}>
                       {e.notes || '-'}
                     </td>
