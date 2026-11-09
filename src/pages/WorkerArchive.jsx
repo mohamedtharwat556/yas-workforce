@@ -36,7 +36,12 @@ export default function WorkerArchive() {
   }, [user])
 
   async function hideEntry(entry) {
-    if (!window.confirm('تحذف الإدخال ده من أرشيفك؟ (هيتشال من عندك بس، ويفضل موجود عند المشرف)')) return
+    if (
+      !window.confirm(
+        'تأكيد الحذف النهائي من عندك؟ الإدخال هيتشال نهائيًا من أرشيفك ومن أرقامك، ويفضل موجود عند المشرف والحسابات.'
+      )
+    )
+      return
     setMsg(null)
     setBusyId(entry.id)
     const { error } = await supabase.rpc('fn_worker_hide_entry', { p_entry_id: entry.id })
@@ -45,7 +50,7 @@ export default function WorkerArchive() {
       setMsg({ type: 'error', text: error.message })
       return
     }
-    setMsg({ type: 'ok', text: 'تم حذف الإدخال من أرشيفك.' })
+    setMsg({ type: 'ok', text: 'تم الحذف النهائي من عندك.' })
     loadEntries()
   }
 
@@ -55,7 +60,7 @@ export default function WorkerArchive() {
         <h2 className="font-bold text-lg">أرشيف إنتاجي</h2>
         <p className="mt-1 text-xs text-slate-500">
           أهلاً {profile?.full_name}، هنا الإدخالات اللي نقلتها من صفحتك الرئيسية عشان تخفّف الزحمة.
-          الحذف من هنا بيشيلها من عندك بس — وبتفضل موجودة عادي عند المشرف والحسابات.
+          «الحذف النهائي» بيشيل الإدخال من عندك نهائيًا (من الأرشيف ومن أرقامك) — وبيفضل موجود عند المشرف والحسابات.
         </p>
       </div>
 
@@ -118,7 +123,7 @@ export default function WorkerArchive() {
                         disabled={busyId === e.id}
                         className="btn-danger !px-2 !py-1 text-xs"
                       >
-                        {busyId === e.id ? '…' : 'حذف'}
+                        {busyId === e.id ? '…' : 'حذف نهائي'}
                       </button>
                     </div>
                   </td>
