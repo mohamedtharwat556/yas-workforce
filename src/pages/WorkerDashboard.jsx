@@ -78,8 +78,13 @@ export default function WorkerDashboard() {
     loadEntries()
   }, [user])
 
-  // بنحسب الإدخالات المعتمدة من المشرف (وأيضًا المُصدرة) في ملخّص الإنتاجية
-  const released = useMemo(() => entries.filter((e) => e.status === 'approved' || e.status === 'released'), [entries])
+  // بنحسب الإدخالات المعتمدة من المشرف (وأيضًا المُصدرة) في ملخّص الإنتاجية.
+  // الإدخالات اللي الموظف حذفها من أرشيفه (worker_hidden_at) بتتشال من الأرقام كمان.
+  // المؤرشفة بس (من غير حذف) بتفضل محسوبة.
+  const released = useMemo(
+    () => entries.filter((e) => (e.status === 'approved' || e.status === 'released') && !e.worker_hidden_at),
+    [entries]
+  )
 
   const summary = useMemo(() => {
     const today = toISODate(new Date())

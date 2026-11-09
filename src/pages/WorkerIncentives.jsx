@@ -33,6 +33,10 @@ export default function WorkerIncentives() {
     }
   }, [user])
 
+  // الإدخالات اللي الموظف حذفها من أرشيفه (worker_hidden_at) بتتشال من الأرقام كمان.
+  // المؤرشفة بس (من غير حذف) بتفضل محسوبة.
+  const countedEntries = useMemo(() => entries.filter((e) => !e.worker_hidden_at), [entries])
+
   const stats = useMemo(() => {
     const today = toISODate(new Date())
     const weekStart = toISODate(startOfWeek())
@@ -41,18 +45,18 @@ export default function WorkerIncentives() {
       laps: rows.reduce((s, e) => s + entryLines(e).reduce((a, l) => a + l.quantity, 0), 0),
     })
     return {
-      today: calc(entries.filter((e) => e.entry_date === today)),
-      week: calc(entries.filter((e) => e.entry_date >= weekStart)),
-      month: calc(entries.filter((e) => e.entry_date >= monthStart)),
-      all: calc(entries),
+      today: calc(countedEntries.filter((e) => e.entry_date === today)),
+      week: calc(countedEntries.filter((e) => e.entry_date >= weekStart)),
+      month: calc(countedEntries.filter((e) => e.entry_date >= monthStart)),
+      all: calc(countedEntries),
     }
-  }, [entries])
+  }, [countedEntries])
 
   // تفصيل الشهر الحالي حسب نوع العملية
   const byOperation = useMemo(() => {
     const monthStart = toISODate(startOfMonth())
     const map = new Map()
-    for (const e of entries) {
+    for (const e of countedEntries) {
       if (e.entry_date < monthStart) continue
       for (const l of entryLines(e)) {
         const name = l.name
@@ -62,7 +66,7 @@ export default function WorkerIncentives() {
       }
     }
     return Array.from(map.values()).sort((a, b) => b.laps - a.laps)
-  }, [entries])
+  }, [countedEntries])
 
   const monthTotals = useMemo(
     () => byOperation.reduce((a, r) => ({ laps: a.laps + r.laps }), { laps: 0 }),
@@ -81,7 +85,7 @@ export default function WorkerIncentives() {
         [`إجمالي تراكمي: ${formatNumber(stats.all.laps)} لاب`],
       ],
       headers: ['التاريخ', 'العملية', 'العدد', 'الحالة'],
-      rows: entries.map((e) => {
+      rows: countedEntries.map((e) => {
         const qty = entryLines(e).reduce((s, l) => s + l.quantity, 0)
         return [e.entry_date, entryOperationNames(e), qty, e.status]
       }),
