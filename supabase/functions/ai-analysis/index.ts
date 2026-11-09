@@ -19,7 +19,9 @@ function json(payload: unknown, status = 200) {
   })
 }
 
-const GEMINI_TIMEOUT_MS = 15000
+// موديلات جوجل الحديثة بتاخد وقت طويل في الرد أحيانًا (يمكن يعدّي الدقيقة)،
+// فبناخد مهلة كبيرة لكن أقل من الحد الأقصى للدالة عشان نرجّع رسالة خطأ واضحة بدل ما تعلّق.
+const GEMINI_TIMEOUT_MS = 70000
 
 // نداء موديل واحد مع مهلة زمنية — يرجّع إمّا الملخص أو خطأ واضح (بدون ما يعلّق الدالة)
 async function callGemini(model: string, key: string, prompt: string) {
@@ -110,12 +112,12 @@ Deno.serve(async (req) => {
 
     // 3) نداء الموديل (Google Gemini) — مع مهلة وإعادة محاولة وموديل بديل لو السيرفر مزحوم
     const preferred = Deno.env.get('GEMINI_MODEL') ?? 'gemini-3.8-flash'
-    const models = Array.from(new Set([preferred, 'gemini-flash-latest']))
+    const models = Array.from(new Set([preferred, 'gemini-flash-lite-latest']))
     let lastErr = ''
     let summary = ''
 
     outer: for (const model of models) {
-      const attempts = model === preferred ? 2 : 1
+      const attempts = 1
       for (let attempt = 0; attempt < attempts; attempt++) {
         const r = await callGemini(model, geminiKey, prompt)
         if (r.ok) {
