@@ -72,7 +72,7 @@ Deno.serve(async (req) => {
     const body = await req.json()
 
     // 3) نداء الموديل (Google Gemini)
-    const model = Deno.env.get('GEMINI_MODEL') ?? 'gemini-2.5-flash'
+    const model = Deno.env.get('GEMINI_MODEL') ?? 'gemini-3.8-flash'
     const res = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiKey}`,
       {
