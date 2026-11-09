@@ -15,7 +15,7 @@ import EntryDetails from '../components/EntryDetails'
 import { supabase } from '../lib/supabase'
 import { formatDate, formatNumber, startOfMonth, startOfWeek, toISODate, entryLines, entryOperationNames, entryTotalQty } from '../lib/dates'
 import { printReport } from '../lib/report'
-import { exportXlsx } from '../lib/xlsx'
+import { exportXlsx, exportXlsxSheets } from '../lib/xlsx'
 
 // استخراج رسالة الخطأ الحقيقية من دالة Edge لما ترجع حالة غير 2xx
 async function edgeErrorMessage(error) {
@@ -267,19 +267,32 @@ export default function AccountantDashboard() {
     })
   }
 
-  // شيت Excel لتقرير الـ AI: أسماء العمال + العمليات + عدد اللابات
+  // شيت Excel: ورقة «ملخّص العمال» (إجمالي كل عامل) + ورقة «تفصيل الإدخالات»
   function exportAiExcel() {
-    exportXlsx({
+    exportXlsxSheets({
       filename: `yas-ai-report_${range.start}_${range.end}.xlsx`,
-      sheetName: 'تقرير AI',
-      meta: [[`الفترة: ${range.start} ← ${range.end}`]],
-      headers: ['اسم العامل', 'العملية', 'عدد اللابات'],
-      rows: filtered.map((e) => [
-        e.profiles?.full_name ?? 'غير معروف',
-        entryOperationNames(e),
-        entryTotalQty(e),
-      ]),
-      footer: ['الإجمالي', '', totals.laps],
+      sheets: [
+        {
+          sheetName: 'ملخّص العمال',
+          title: 'ملخّص العمال — عدد اللابات',
+          meta: [[`الفترة: ${range.start} ← ${range.end}`]],
+          headers: ['#', 'اسم العامل', 'عدد اللابات'],
+          rows: rows.map((r, i) => [i + 1, r.name, r.laps]),
+          footer: ['', 'الإجمالي', totals.laps],
+        },
+        {
+          sheetName: 'تفصيل الإدخالات',
+          title: 'تفصيل الإدخالات',
+          meta: [[`الفترة: ${range.start} ← ${range.end}`]],
+          headers: ['اسم العامل', 'العملية', 'عدد اللابات'],
+          rows: filtered.map((e) => [
+            e.profiles?.full_name ?? 'غير معروف',
+            entryOperationNames(e),
+            entryTotalQty(e),
+          ]),
+          footer: ['الإجمالي', '', totals.laps],
+        },
+      ],
     })
   }
 
@@ -387,6 +400,9 @@ export default function AccountantDashboard() {
         <button onClick={exportCSV} disabled={rows.length === 0} className="btn-ghost">
           تصدير CSV
         </button>
+        <button onClick={exportAiExcel} disabled={filtered.length === 0} className="btn-ghost">
+          تصدير شيت العمال (Excel)
+        </button>
         <button onClick={runAI} disabled={aiBusy || rows.length === 0} className="btn-primary">
           {aiBusy ? 'جاري التحليل…' : 'تقرير AI'}
         </button>
@@ -492,11 +508,6 @@ export default function AccountantDashboard() {
         <div className={`card mb-6 ${aiError ? 'border-red-200 bg-red-50' : 'border-slate-200'}`}>
           <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
             <h2 className="font-bold text-lg">تحليل الذكاء الاصطناعي</h2>
-            {!aiError && (
-              <button onClick={exportAiExcel} disabled={filtered.length === 0} className="btn-ghost !py-1.5 text-sm">
-                تصدير Excel (الأسماء واللابات)
-              </button>
-            )}
           </div>
           {aiError ? (
             <p className="text-red-700 text-sm">{aiError}</p>
