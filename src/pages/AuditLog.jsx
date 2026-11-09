@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import Layout from '../components/Layout'
+import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
 import { formatDate, toISODate } from '../lib/dates'
 import { exportXlsx } from '../lib/xlsx'
@@ -41,12 +42,15 @@ function startOfMonthISO() {
 const LIMIT = 300
 
 export default function AuditLog() {
+  const { profile } = useAuth()
+  const isAccountant = profile?.role === 'accountant'
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(false)
   const [from, setFrom] = useState(startOfMonthISO())
   const [to, setTo] = useState(toISODate(new Date()))
   const [q, setQ] = useState('')
   const [openId, setOpenId] = useState(null)
+  const [busyId, setBusyId] = useState(null)
 
   useEffect(() => {
     let active = true
@@ -78,6 +82,16 @@ export default function AuditLog() {
         .some((v) => String(v).toLowerCase().includes(term))
     )
   }, [rows, q])
+
+  async function removeRow(row) {
+    if (!window.confirm('تأكيد حذف السجل ده من سجل الأوديت نهائيًا؟')) return
+    setBusyId(row.id)
+    const { error } = await supabase.rpc('fn_delete_audit_log', { p_id: row.id })
+    setBusyId(null)
+    if (error) return window.alert(error.message)
+    setRows((prev) => prev.filter((r) => r.id !== row.id))
+    setOpenId((id) => (id === row.id ? null : id))
+  }
 
   function exportExcel() {
     exportXlsx({
@@ -134,7 +148,7 @@ export default function AuditLog() {
                 <th>المستخدم</th>
                 <th>الإجراء</th>
                 <th>الكيان</th>
-                <th></th>
+                <th>إجراء</th>
               </tr>
             </thead>
             <tbody>
@@ -159,12 +173,23 @@ export default function AuditLog() {
                     <span className={`badge ${actionTone(r.action)}`}>{actionLabel(r.action)}</span>
                   </td>
                   <td data-label="الكيان" className="text-xs text-slate-500">{r.entity ?? '—'}</td>
-                  <td data-label="تفاصيل">
-                    {(r.before || r.after) && (
-                      <button onClick={() => setOpenId(openId === r.id ? null : r.id)} className="btn-ghost !px-2 !py-1 text-xs">
-                        {openId === r.id ? 'إخفاء' : 'تفاصيل'}
-                      </button>
-                    )}
+                  <td data-label="إجراء" className="whitespace-nowrap">
+                    <div className="flex gap-2">
+                      {(r.before || r.after) && (
+                        <button onClick={() => setOpenId(openId === r.id ? null : r.id)} className="btn-ghost !px-2 !py-1 text-xs">
+                          {openId === r.id ? 'إخفاء' : 'تفاصيل'}
+                        </button>
+                      )}
+                      {isAccountant && (
+                        <button
+                          onClick={() => removeRow(r)}
+                          disabled={busyId === r.id}
+                          className="btn-danger !px-2 !py-1 text-xs"
+                        >
+                          {busyId === r.id ? '…' : 'حذف'}
+                        </button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}

@@ -346,6 +346,29 @@ export default function AccountantDashboard() {
     }
   }
 
+  async function deleteAllEntries() {
+    if (
+      !window.confirm(
+        'تحذير: هيتم حذف كل إدخالات الإنتاج في النظام نهائيًا (كل الموظفين وكل الفترات). تكمل؟'
+      )
+    )
+      return
+    if (!window.confirm('تأكيد أخير: مفيش رجوع بعد الحذف. متأكد؟')) return
+    setLoading(true)
+    const { error } = await supabase.rpc('fn_delete_all_entries')
+    if (error) {
+      setLoading(false)
+      return window.alert(error.message)
+    }
+    setEntries([])
+    setArchivedEntries([])
+    setAi(null)
+    setAiError('')
+    setOverview({ today: { laps: 0 }, week: { laps: 0 }, month: { laps: 0 } })
+    setLoading(false)
+    window.alert('تم حذف كل الإدخالات.')
+  }
+
   return (
     <Layout title="التقارير">
       <div className="card mb-6 flex flex-wrap items-end gap-3">
@@ -405,6 +428,9 @@ export default function AccountantDashboard() {
         </button>
         <button onClick={runAI} disabled={aiBusy || rows.length === 0} className="btn-primary">
           {aiBusy ? 'جاري التحليل…' : 'تقرير AI'}
+        </button>
+        <button onClick={deleteAllEntries} disabled={loading} className="btn-danger">
+          حذف الكل
         </button>
       </div>
 

@@ -73,8 +73,9 @@ export default function WorkerIncentives() {
     [byOperation]
   )
 
-  // القائمة بتخفي الإدخالات اللي الموظف نقلها لأرشيفه (الإجماليات بتفضل محسوبة عليهم)
-  const visibleEntries = useMemo(() => entries.filter((e) => !e.worker_archived_at), [entries])
+  // القائمة بتعرض كل الإدخالات المحسوبة في الإجمالي (بما فيها اللي الموظف نقلها لأرشيفه)
+  // عشان الإجمالي التراكمي والقائمة يبقوا متطابقين.
+  const visibleEntries = countedEntries
 
   function exportExcel() {
     exportXlsx({
