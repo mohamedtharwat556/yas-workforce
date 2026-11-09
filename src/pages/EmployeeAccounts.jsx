@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import Layout from '../components/Layout'
+import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
 import { buildPassword, buildUsername, emailFor } from '../lib/translit'
 import { formatDate } from '../lib/dates'
@@ -13,6 +14,9 @@ const ROLE_OPTIONS = [
 ]
 
 export default function EmployeeAccounts() {
+  const { profile } = useAuth()
+  // الأدمن (الحسابات) بس اللي يقدر ينشئ أدوار الحسابات/الإدارة
+  const roleOptions = profile?.role === 'accountant' ? ROLE_OPTIONS : ROLE_OPTIONS.slice(0, 2)
   const [profiles, setProfiles] = useState([])
   const [loading, setLoading] = useState(true)
   const [name, setName] = useState('')
@@ -209,7 +213,7 @@ export default function EmployeeAccounts() {
           <div>
             <label className="label">الدور</label>
             <select className="input" value={role} onChange={(e) => setRole(e.target.value)}>
-              {ROLE_OPTIONS.map((o) => (
+              {roleOptions.map((o) => (
                 <option key={o.value} value={o.value}>
                   {o.label}
                 </option>

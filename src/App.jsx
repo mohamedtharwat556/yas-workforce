@@ -72,7 +72,7 @@ export default function App() {
         <Route
           path="/supervisor"
           element={
-            <ProtectedRoute roles={['supervisor']}>
+            <ProtectedRoute roles={['supervisor', 'accountant']}>
               <SupervisorDashboard />
             </ProtectedRoute>
           }
@@ -80,7 +80,7 @@ export default function App() {
         <Route
           path="/accountant"
           element={
-            <ProtectedRoute roles={['supervisor', 'accountant']}>
+            <ProtectedRoute roles={['accountant', 'management']}>
               <AccountantDashboard />
             </ProtectedRoute>
           }
@@ -88,7 +88,7 @@ export default function App() {
         <Route
           path="/accountant/locks"
           element={
-            <ProtectedRoute roles={['supervisor', 'accountant']}>
+            <ProtectedRoute roles={['accountant', 'management']}>
               <IncentiveLocks />
             </ProtectedRoute>
           }

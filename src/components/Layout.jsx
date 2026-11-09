@@ -11,14 +11,12 @@ const NAV = {
   ],
   supervisor: [
     { to: '/supervisor', label: 'لوحة المشرف', short: 'المشرف' },
-    { to: '/accountant', label: 'التقارير', short: 'تقارير' },
-    { to: '/accountant/locks', label: 'اعتماد الحوافز', short: 'اعتماد' },
     { to: '/supervisor/accounts', label: 'إدارة الحسابات', short: 'حسابات' },
     { to: '/audit', label: 'سجل الأوديت', short: 'أوديت' },
   ],
   accountant: [
     { to: '/accountant', label: 'التقارير', short: 'تقارير' },
-    { to: '/laptops', label: 'مسار اللاب', short: 'لابات' },
+    { to: '/supervisor', label: 'لوحة المشرف', short: 'المشرف' },
     { to: '/accountant/locks', label: 'اعتماد الحوافز', short: 'اعتماد' },
     { to: '/supervisor/accounts', label: 'إدارة الحسابات', short: 'حسابات' },
     { to: '/audit', label: 'سجل الأوديت', short: 'أوديت' },
@@ -29,6 +27,8 @@ const NAV = {
     { to: '/audit', label: 'سجل الأوديت', short: 'أوديت' },
   ],
 }
+
+const ROLE_LABEL = { worker: 'عامل', supervisor: 'مشرف', accountant: 'الحسابات', management: 'إدارة' }
 
 // أيقونات SVG بسيطة لكل مسار
 const ICONS = {
@@ -111,7 +111,7 @@ export default function Layout({ title, children }) {
           </div>
           <div className="flex shrink-0 items-center gap-3">
             <span className="hidden text-sm text-blue-100 md:inline">
-              {profile?.full_name} · <span className="font-medium text-white">{profile?.role}</span>
+              {profile?.full_name} · <span className="font-medium text-white">{ROLE_LABEL[profile?.role] ?? profile?.role}</span>
             </span>
             <NotificationBell />
             <Link

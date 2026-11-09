@@ -15,7 +15,9 @@ const TABS = [
 ]
 
 export default function SupervisorDashboard() {
-  const { user } = useAuth()
+  const { user, profile } = useAuth()
+  // الأدمن (الحسابات) بس اللي يقدر يمنح أدوار الحسابات/الإدارة
+  const canGrantAdmin = profile?.role === 'accountant'
   const [tab, setTab] = useState('approvals')
   const [pending, setPending] = useState([])
   const [entries, setEntries] = useState([])
@@ -336,8 +338,8 @@ export default function SupervisorDashboard() {
                         >
                           <option value="worker">عامل</option>
                           <option value="supervisor">مشرف</option>
-                          <option value="accountant">حسابات</option>
-                          <option value="management">إدارة</option>
+                          {canGrantAdmin && <option value="accountant">حسابات</option>}
+                          {canGrantAdmin && <option value="management">إدارة</option>}
                         </select>
                       </td>
                       <td data-label="الحالة">
