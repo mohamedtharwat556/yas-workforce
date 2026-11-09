@@ -59,6 +59,17 @@ export default function LaptopJourney() {
 
   const doneStages = useMemo(() => new Set(movements.map((m) => m.stage_code).filter(Boolean)), [movements])
 
+  // مراحل «الوجهة» (المسار الفرعي بعد الفحص) والمراحل العادية
+  const destinationStages = useMemo(() => stages.filter((s) => s.is_destination), [stages])
+  const flowStages = useMemo(() => stages.filter((s) => !s.is_destination), [stages])
+
+  // آخر وجهة مسجّلة للاب
+  const currentDestination = useMemo(() => {
+    const codes = new Set(destinationStages.map((s) => s.code))
+    const found = [...movements].reverse().find((m) => codes.has(m.stage_code))
+    return found ? stageByCode[found.stage_code]?.name_ar ?? found.stage_code : null
+  }, [movements, destinationStages, stageByCode])
+
   async function loadBase() {
     const [s, o, l] = await Promise.all([
       supabase.from('stages').select('*').eq('active', true).order('sort_order'),
@@ -84,7 +95,7 @@ export default function LaptopJourney() {
         .order('created_at'),
       supabase
         .from('production_entries')
-        .select('*, operations(name_ar), entry_operations(operation_id, quantity, operations(name_ar, weight))')
+        .select('*, operations(name_ar), entry_operations(operation_id, quantity, operations(name_ar))')
         .eq('laptop_id', id)
         .order('created_at'),
     ])
@@ -251,7 +262,7 @@ export default function LaptopJourney() {
       flash('error', error.message)
       return
     }
-    // بند الإدخال (نفس العملية والعدد) — عشان يظهر في التفاصيل ويُحسب في الحافز
+    // بند الإدخال (نفس العملية والعدد) — عشان يظهر في التفاصيل
     await supabase
       .from('entry_operations')
       .insert({ entry_id: created.id, operation_id: op.id, quantity: qty })
@@ -432,6 +443,13 @@ export default function LaptopJourney() {
                   })}
                 </div>
 
+                {currentDestination && (
+                  <p className="mt-2 text-sm">
+                    الوجهة:{' '}
+                    <span className="badge bg-blue-100 text-blue-800">{currentDestination}</span>
+                  </p>
+                )}
+
                 {/* الإجراءات حسب الدور */}
                 <div className="mt-4 flex flex-wrap gap-2">
                   {['worker', 'supervisor'].includes(role) &&
@@ -444,11 +462,20 @@ export default function LaptopJourney() {
                           required
                         >
                           <option value="">اختر مرحلة…</option>
-                          {stages.map((s) => (
-                            <option key={s.code} value={s.code}>
-                              {s.name_ar}
-                            </option>
-                          ))}
+                          <optgroup label="مراحل المسار">
+                            {flowStages.map((s) => (
+                              <option key={s.code} value={s.code}>
+                                {s.name_ar}
+                              </option>
+                            ))}
+                          </optgroup>
+                          <optgroup label="وجهات اللاب">
+                            {destinationStages.map((s) => (
+                              <option key={s.code} value={s.code}>
+                                {s.name_ar}
+                              </option>
+                            ))}
+                          </optgroup>
                         </select>
                         <input
                           className="input !w-48"

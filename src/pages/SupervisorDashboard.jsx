@@ -10,16 +10,14 @@ import { exportXlsx } from '../lib/xlsx'
 const TABS = [
   { key: 'release', label: 'إدخالات للمراجعة' },
   { key: 'users', label: 'المستخدمون' },
-  { key: 'settings', label: 'أوزان العمليات' },
 ]
 
 export default function SupervisorDashboard() {
   const { user, profile } = useAuth()
-  // الأدمن (الحسابات) بس اللي يقدر يمنح أدوار الحسابات/الإدارة
+  // الأدمن (الحسابات) بس اللي يقدر يمنح دور الحسابات
   const canGrantAdmin = profile?.role === 'accountant'
   const [tab, setTab] = useState('release')
   const [entries, setEntries] = useState([])
-  const [operations, setOperations] = useState([])
   const [users, setUsers] = useState([])
   const [busyId, setBusyId] = useState(null)
   const [msg, setMsg] = useState(null)
@@ -28,17 +26,15 @@ export default function SupervisorDashboard() {
   const [reason, setReason] = useState('')
 
   async function loadAll() {
-    const [e, o, u] = await Promise.all([
+    const [e, u] = await Promise.all([
       supabase
         .from('production_entries')
-        .select('*, profiles!production_entries_worker_id_fkey(full_name), operations(name_ar), entry_operations(operation_id, quantity, operations(name_ar, weight))')
+        .select('*, profiles!production_entries_worker_id_fkey(full_name), operations(name_ar), entry_operations(operation_id, quantity, operations(name_ar))')
         .in('status', ['draft', 'submitted'])
         .order('created_at', { ascending: false }),
-      supabase.from('operations').select('*').order('sort_order'),
       supabase.from('profiles').select('*').order('created_at', { ascending: false }),
     ])
     setEntries(e.data ?? [])
-    setOperations(o.data ?? [])
     setUsers(u.data ?? [])
   }
 
@@ -74,19 +70,6 @@ export default function SupervisorDashboard() {
     setReturning(null)
     setReason('')
     loadAll()
-  }
-
-  async function saveWeights() {
-    setBusyId('weights')
-    for (const op of operations) {
-      await supabase.from('operations').update({ weight: Number(op.weight) }).eq('id', op.id)
-    }
-    setBusyId(null)
-    setMsg({ type: 'ok', text: 'تم حفظ الأوزان.' })
-  }
-
-  function setOpWeight(id, value) {
-    setOperations((ops) => ops.map((o) => (o.id === id ? { ...o, weight: value } : o)))
   }
 
   function exportPendingEntries() {
@@ -262,7 +245,6 @@ export default function SupervisorDashboard() {
                           <option value="worker">عامل</option>
                           <option value="supervisor">مشرف</option>
                           {canGrantAdmin && <option value="accountant">حسابات</option>}
-                          {canGrantAdmin && <option value="management">إدارة</option>}
                         </select>
                       </td>
                       <td data-label="الحالة">
@@ -296,35 +278,6 @@ export default function SupervisorDashboard() {
               </tbody>
             </table>
           </div>
-        </div>
-      )}
-
-      {tab === 'settings' && (
-        <div className="card max-w-xl">
-          <h2 className="font-bold text-lg mb-3">أوزان العمليات (Weighted)</h2>
-          <p className="text-xs text-slate-500 mb-3">
-            الوحدات المرجّحة للعملية = عددها × وزنها. الأوزان دي بتستخدمها التقارير في حساب إنتاجية كل عامل.
-          </p>
-          <div className="space-y-3">
-            {operations.map((o) => (
-              <div key={o.id} className="flex items-center gap-3">
-                <span className="flex-1 text-sm">
-                  {o.name_ar} <span className="text-slate-400 font-mono">({o.name_en})</span>
-                </span>
-                <input
-                  type="number"
-                  step="0.5"
-                  min="0"
-                  className="input w-24"
-                  value={o.weight}
-                  onChange={(e) => setOpWeight(o.id, e.target.value)}
-                />
-              </div>
-            ))}
-          </div>
-          <button onClick={saveWeights} disabled={busyId === 'weights'} className="btn-accent w-full mt-4">
-            حفظ الأوزان
-          </button>
         </div>
       )}
 

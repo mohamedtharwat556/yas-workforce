@@ -28,7 +28,6 @@ function HomeRedirect() {
   if (profile.status !== 'active') return <Navigate to="/pending" replace />
   if (profile.role === 'supervisor') return <Navigate to="/supervisor" replace />
   if (profile.role === 'accountant') return <Navigate to="/accountant" replace />
-  if (profile.role === 'management') return <Navigate to="/management" replace />
   return <Navigate to="/worker" replace />
 }
 
@@ -79,7 +78,7 @@ export default function App() {
         <Route
           path="/accountant"
           element={
-            <ProtectedRoute roles={['accountant', 'management']}>
+            <ProtectedRoute roles={['accountant']}>
               <AccountantDashboard />
             </ProtectedRoute>
           }
@@ -95,7 +94,7 @@ export default function App() {
         <Route
           path="/laptops"
           element={
-            <ProtectedRoute roles={['worker', 'supervisor', 'accountant', 'management']}>
+            <ProtectedRoute roles={['worker', 'supervisor', 'accountant']}>
               <LaptopJourney />
             </ProtectedRoute>
           }
@@ -103,7 +102,7 @@ export default function App() {
         <Route
           path="/management"
           element={
-            <ProtectedRoute roles={['management']}>
+            <ProtectedRoute roles={['accountant']}>
               <ManagementDashboard />
             </ProtectedRoute>
           }
@@ -111,7 +110,7 @@ export default function App() {
         <Route
           path="/audit"
           element={
-            <ProtectedRoute roles={['supervisor', 'accountant', 'management']}>
+            <ProtectedRoute roles={['supervisor', 'accountant']}>
               <AuditLog />
             </ProtectedRoute>
           }
@@ -119,7 +118,7 @@ export default function App() {
         <Route
           path="/laptops/labels"
           element={
-            <ProtectedRoute roles={['worker', 'supervisor', 'accountant', 'management']}>
+            <ProtectedRoute roles={['worker', 'supervisor', 'accountant']}>
               <LaptopQR />
             </ProtectedRoute>
           }
@@ -127,7 +126,7 @@ export default function App() {
         <Route
           path="/l/:token"
           element={
-            <ProtectedRoute roles={['worker', 'supervisor', 'accountant', 'management']}>
+            <ProtectedRoute roles={['worker', 'supervisor', 'accountant']}>
               <ScanLanding />
             </ProtectedRoute>
           }
@@ -135,7 +134,7 @@ export default function App() {
         <Route
           path="/password"
           element={
-            <ProtectedRoute roles={['worker', 'supervisor', 'accountant', 'management']}>
+            <ProtectedRoute roles={['worker', 'supervisor', 'accountant']}>
               <ChangePassword />
             </ProtectedRoute>
           }

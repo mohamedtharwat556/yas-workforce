@@ -30,16 +30,11 @@ export function printReport({
   }
 
   const workerRows = rows
-    .map(
-      (r, i) =>
-        `<tr><td>${i + 1}</td><td class="name">${esc(r.name)}</td><td>${fmt(r.laps)}</td><td>${fmt(
-          r.units
-        )}</td></tr>`
-    )
+    .map((r, i) => `<tr><td>${i + 1}</td><td class="name">${esc(r.name)}</td><td>${fmt(r.laps)}</td></tr>`)
     .join('')
 
   const opRows = byOperation
-    .map((o) => `<tr><td class="name">${esc(o.name)}</td><td>${fmt(o.laps)}</td><td>${fmt(o.units)}</td></tr>`)
+    .map((o) => `<tr><td class="name">${esc(o.name)}</td><td>${fmt(o.laps)}</td></tr>`)
     .join('')
 
   const html = `<!doctype html>
@@ -83,21 +78,18 @@ export function printReport({
 
   <div class="cards">
     <div class="card"><div class="lbl">إجمالي اللابات</div><div class="val">${fmt(totals?.laps)}</div></div>
-    <div class="card"><div class="lbl">الوحدات المرجّحة</div><div class="val">${fmt(totals?.units)}</div></div>
   </div>
 
   <h2>${esc(rowsTitle)}</h2>
   <table>
     <thead>
-      <tr><th>#</th><th>${esc(rowsLabel)}</th><th>عدد اللابات</th><th>الوحدات المرجّحة</th></tr>
+      <tr><th>#</th><th>${esc(rowsLabel)}</th><th>عدد اللابات</th></tr>
     </thead>
     <tbody>
-      ${workerRows || '<tr><td colspan="4" style="text-align:center;color:#94a3b8">لا توجد بيانات في الفترة</td></tr>'}
+      ${workerRows || '<tr><td colspan="3" style="text-align:center;color:#94a3b8">لا توجد بيانات في الفترة</td></tr>'}
       ${
         rows.length
-          ? `<tr class="total-row"><td colspan="2">الإجمالي</td><td>${fmt(totals?.laps)}</td><td>${fmt(
-              totals?.units
-            )}</td></tr>`
+          ? `<tr class="total-row"><td colspan="2">الإجمالي</td><td>${fmt(totals?.laps)}</td></tr>`
           : ''
       }
     </tbody>
@@ -106,10 +98,10 @@ export function printReport({
   <h2>التفصيل حسب نوع العملية</h2>
   <table>
     <thead>
-      <tr><th>العملية</th><th>عدد اللابات</th><th>الوحدات المرجّحة</th></tr>
+      <tr><th>العملية</th><th>عدد اللابات</th></tr>
     </thead>
     <tbody>
-      ${opRows || '<tr><td colspan="3" style="text-align:center;color:#94a3b8">لا توجد بيانات في الفترة</td></tr>'}
+      ${opRows || '<tr><td colspan="2" style="text-align:center;color:#94a3b8">لا توجد بيانات في الفترة</td></tr>'}
     </tbody>
   </table>
 

@@ -12,31 +12,15 @@ import {
   startOfMonth,
   startOfWeek,
   toISODate,
-  weightedUnits,
 } from '../lib/dates'
-import { compressImage } from '../lib/image'
-
-// بنفتكر اتجاه السيريال اللي اختاره العامل عشان نسرّع الإدخال عليه
-const LAST_KEY = 'yas:lastEntry'
-
-function readLast() {
-  try {
-    const v = JSON.parse(localStorage.getItem(LAST_KEY) || '{}')
-    return { direction: v.direction === 'in' ? 'in' : 'out' }
-  } catch {
-    return { direction: 'out' }
-  }
-}
 
 function emptyForm(overrides = {}) {
-  const last = readLast()
   return {
     // بنود الإدخال: كل بند = نوع عملية + عدد (ممكن يكونوا أكتر من واحد)
     lines: [],
     entry_date: toISODate(new Date()),
     notes: '',
-    serials: '',
-    direction: last.direction,
+    serials: [],
     ...overrides,
   }
 }
@@ -46,9 +30,7 @@ export default function WorkerDashboard() {
   const [operations, setOperations] = useState([])
   const [entries, setEntries] = useState([])
   const [form, setForm] = useState(emptyForm())
-  const [files, setFiles] = useState([])
   const [busy, setBusy] = useState(false)
-  const [compressing, setCompressing] = useState(false)
   const [msg, setMsg] = useState(null)
   const [detailId, setDetailId] = useState(null)
   const [editingId, setEditingId] = useState(null)
@@ -65,7 +47,7 @@ export default function WorkerDashboard() {
   async function loadEntries() {
     const { data } = await supabase
       .from('production_entries')
-      .select('*, operations(name_ar, name_en, weight), entry_operations(operation_id, quantity, operations(name_ar, weight))')
+      .select('*, operations(name_ar, name_en), entry_operations(operation_id, quantity, operations(name_ar))')
       .eq('worker_id', user.id)
       .order('entry_date', { ascending: false })
       .order('created_at', { ascending: false })
@@ -90,7 +72,6 @@ export default function WorkerDashboard() {
       const rows = released.filter((e) => (mode === 'day' ? e.entry_date === from : e.entry_date >= from))
       return {
         laps: rows.reduce((s, e) => s + entryTotalQty(e), 0),
-        units: weightedUnits(rows),
       }
     }
     return {
@@ -120,22 +101,19 @@ export default function WorkerDashboard() {
     }))
   }
 
-  // ضغط الصور المختارة/المصوّرة قبل الإضافة
-  async function addFiles(list) {
-    const incoming = Array.from(list ?? [])
-    if (!incoming.length) return
-    setCompressing(true)
-    try {
-      const out = []
-      for (const f of incoming) out.push(await compressImage(f))
-      setFiles((prev) => [...prev, ...out])
-    } finally {
-      setCompressing(false)
-    }
-  }
+  // إجمالي عدد اللابات في الإدخال — بنفتح على أساسه خانات السيريال
+  const totalQty = useMemo(
+    () => form.lines.reduce((s, l) => s + (Number(l.quantity) || 0), 0),
+    [form.lines]
+  )
 
-  function removeFile(idx) {
-    setFiles((prev) => prev.filter((_, i) => i !== idx))
+  function setSerial(idx, value) {
+    setForm((f) => {
+      const serials = [...f.serials]
+      while (serials.length <= idx) serials.push('')
+      serials[idx] = value
+      return { ...f, serials }
+    })
   }
 
   async function handleSubmit(e) {
@@ -156,27 +134,18 @@ export default function WorkerDashboard() {
     try {
       const entryId = editingId ?? crypto.randomUUID()
 
-      // 1) ارفع الصور الجديدة
-      const uploaded = []
-      for (const file of files) {
-        const safe = file.name.replace(/[^\w.\-]+/g, '_')
-        const path = `${user.id}/${entryId}/${Date.now()}-${safe}`
-        const { error } = await supabase.storage.from('laps').upload(path, file)
-        if (error) throw error
-        uploaded.push({ storage_path: path, file_type: file.type })
-      }
-
       // الأعمدة القديمة (operation_id/quantity) بنسيبها = أول بند/الإجمالي
       // عشان أي شاشة قديمة تفضل شغالة.
+      const totalLaps = lines.reduce((s, l) => s + l.quantity, 0)
       const base = {
         operation_id: lines[0].operation_id,
         entry_date: form.entry_date,
-        quantity: lines.reduce((s, l) => s + l.quantity, 0),
+        quantity: totalLaps,
         notes: form.notes || null,
       }
 
       if (wasEdit) {
-        // 2) عدّل الإدخال ورجّعه مسودّة (يمسح الإرجاع السابق)
+        // عدّل الإدخال ورجّعه مسودّة (يمسح الإرجاع السابق)
         const { error: upErr } = await supabase
           .from('production_entries')
           .update({ ...base, status: 'draft', return_reason: null, returned_by: null, returned_at: null })
@@ -187,42 +156,32 @@ export default function WorkerDashboard() {
         await supabase.from('lap_serials').delete().eq('entry_id', entryId)
         await supabase.from('entry_operations').delete().eq('entry_id', entryId)
       } else {
-        // 2) أنشئ الإدخال
+        // أنشئ الإدخال
         const { error: entryError } = await supabase
           .from('production_entries')
           .insert({ id: entryId, worker_id: user.id, ...base, status: 'draft' })
         if (entryError) throw entryError
       }
 
-      // 2.1) بنود الإدخال (العمليات)
+      // بنود الإدخال (العمليات)
       const { error: linesError } = await supabase
         .from('entry_operations')
         .insert(lines.map((l) => ({ entry_id: entryId, operation_id: l.operation_id, quantity: l.quantity })))
       if (linesError) throw linesError
 
-      // 3) السيريالات
+      // السيريالات (خانة لكل لاب — اختياري)
       const serials = form.serials
-        .split(/[\n,]+/)
-        .map((s) => s.trim())
+        .slice(0, totalLaps)
+        .map((s) => String(s ?? '').trim())
         .filter(Boolean)
       if (serials.length) {
-        const { error } = await supabase.from('lap_serials').insert(
-          serials.map((serial) => ({ entry_id: entryId, serial, direction: form.direction }))
-        )
-        if (error) throw error
-      }
-
-      // 4) المرفقات
-      if (uploaded.length) {
         const { error } = await supabase
-          .from('attachments')
-          .insert(uploaded.map((u) => ({ entry_id: entryId, ...u })))
+          .from('lap_serials')
+          .insert(serials.map((serial) => ({ entry_id: entryId, serial })))
         if (error) throw error
       }
 
-      localStorage.setItem(LAST_KEY, JSON.stringify({ direction: form.direction }))
       setForm(emptyForm({ entry_date: form.entry_date }))
-      setFiles([])
       setEditingId(null)
       setMsg({
         type: 'ok',
@@ -243,7 +202,7 @@ export default function WorkerDashboard() {
     const [serialsRes, linesRes] = await Promise.all([
       supabase
         .from('lap_serials')
-        .select('serial, direction')
+        .select('serial')
         .eq('entry_id', entry.id)
         .order('created_at'),
       supabase
@@ -259,34 +218,25 @@ export default function WorkerDashboard() {
       lines: lines.map((l) => ({ operation_id: String(l.operation_id), quantity: String(l.quantity) })),
       entry_date: entry.entry_date,
       notes: entry.notes ?? '',
-      serials: serials.map((s) => s.serial).join('\n'),
-      direction: serials[0]?.direction ?? 'out',
+      serials: serials.map((s) => s.serial),
     })
-    setFiles([])
     setEditingId(entry.id)
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
   function cancelEdit() {
     setEditingId(null)
-    setFiles([])
     setForm(emptyForm({ entry_date: form.entry_date }))
   }
 
   async function removeEntry(entry) {
     if (!window.confirm('متأكد إنك عايز تحذف الإدخال ده؟')) return
     setMsg(null)
-    const { data: atts } = await supabase
-      .from('attachments')
-      .select('storage_path')
-      .eq('entry_id', entry.id)
     const { error } = await supabase.from('production_entries').delete().eq('id', entry.id)
     if (error) {
       setMsg({ type: 'error', text: error.message })
       return
     }
-    const paths = (atts ?? []).map((a) => a.storage_path)
-    if (paths.length) await supabase.storage.from('laps').remove(paths)
     setMsg({ type: 'ok', text: 'تم حذف الإدخال.' })
     loadEntries()
   }
@@ -294,9 +244,9 @@ export default function WorkerDashboard() {
   return (
     <Layout title="إنتاجي اليوم">
       <div className="grid gap-4 md:grid-cols-3 mb-6">
-        <StatCard label="لابات النهاردة" value={summary.today.laps} sub={`${formatNumber(summary.today.units)} وحدة مرجّحة`} />
-        <StatCard label="لابات الأسبوع" value={summary.week.laps} sub={`${formatNumber(summary.week.units)} وحدة مرجّحة`} />
-        <StatCard label="لابات الشهر" value={summary.month.laps} sub={`${formatNumber(summary.month.units)} وحدة مرجّحة`} />
+        <StatCard label="لابات النهاردة" value={summary.today.laps} />
+        <StatCard label="لابات الأسبوع" value={summary.week.laps} />
+        <StatCard label="لابات الشهر" value={summary.month.laps} />
       </div>
 
       <div className="grid gap-6 lg:grid-cols-5">
@@ -332,9 +282,7 @@ export default function WorkerDashboard() {
                   >
                     <label className="flex flex-1 cursor-pointer items-center gap-2">
                       <input type="checkbox" checked={checked} onChange={(e) => toggleLine(o.id, e.target.checked)} />
-                      <span className="text-sm">
-                        {o.name_ar} <span className="text-slate-400">(وزن {o.weight})</span>
-                      </span>
+                      <span className="text-sm">{o.name_ar}</span>
                     </label>
                     {checked && (
                       <input
@@ -358,84 +306,28 @@ export default function WorkerDashboard() {
             <input type="date" required className="input" value={form.entry_date} onChange={(e) => update('entry_date', e.target.value)} />
           </div>
 
-          <div>
-            <label className="label">السيريالات (كل سيريال في سطر — اختياري)</label>
-            <textarea
-              className="input font-mono text-sm"
-              dir="ltr"
-              rows={3}
-              value={form.serials}
-              onChange={(e) => update('serials', e.target.value)}
-              placeholder={'SN-001\nSN-002'}
-            />
-            <div className="mt-2">
-              <label className="label">اتجاه السيريال</label>
-              <select className="input" value={form.direction} onChange={(e) => update('direction', e.target.value)}>
-                <option value="out">إصدار (خارج)</option>
-                <option value="in">استلام (داخل)</option>
-              </select>
+          {totalQty > 0 && (
+            <div>
+              <label className="label">السيريالات (اختياري)</label>
+              <div className="space-y-2">
+                {Array.from({ length: totalQty }).map((_, i) => (
+                  <input
+                    key={i}
+                    className="input font-mono text-sm"
+                    dir="ltr"
+                    placeholder={`سيريال ${i + 1}`}
+                    value={form.serials[i] ?? ''}
+                    onChange={(e) => setSerial(i, e.target.value)}
+                  />
+                ))}
+              </div>
+              <p className="mt-1 text-xs text-slate-400">عدد الخانات = إجمالي عدد اللابات اللي كتبته فوق.</p>
             </div>
-          </div>
+          )}
 
           <div>
             <label className="label">ملاحظات</label>
             <textarea className="input" rows={2} value={form.notes} onChange={(e) => update('notes', e.target.value)} placeholder="أي تفاصيل أو مشاكل…" />
-          </div>
-
-          <div>
-            <label className="label">صور (اختياري)</label>
-            <div className="flex gap-2">
-              <label className="btn-ghost flex-1 cursor-pointer text-center">
-                التقاط صورة
-                <input
-                  type="file"
-                  accept="image/*"
-                  capture="environment"
-                  className="hidden"
-                  onChange={(e) => {
-                    addFiles(e.target.files)
-                    e.target.value = ''
-                  }}
-                />
-              </label>
-              <label className="btn-ghost flex-1 cursor-pointer text-center">
-                من المعرض
-                <input
-                  type="file"
-                  accept="image/*"
-                  multiple
-                  className="hidden"
-                  onChange={(e) => {
-                    addFiles(e.target.files)
-                    e.target.value = ''
-                  }}
-                />
-              </label>
-            </div>
-            <p className="text-xs text-slate-400 mt-1">بيتم ضغط الصور أوتوماتيك قبل الرفع.</p>
-            {compressing && <p className="text-xs text-slate-500 mt-1">جاري ضغط الصور…</p>}
-            {files.length > 0 && (
-              <ul className="mt-2 space-y-1">
-                {files.map((f, i) => (
-                  <li
-                    key={i}
-                    className="flex items-center gap-2 rounded-lg bg-slate-50 px-3 py-1.5 text-xs"
-                  >
-                    <span className="min-w-0 flex-1 truncate" dir="ltr">
-                      {f.name}
-                    </span>
-                    <span className="shrink-0 text-slate-400">{Math.round(f.size / 1024)}KB</span>
-                    <button
-                      type="button"
-                      onClick={() => removeFile(i)}
-                      className="shrink-0 text-red-600"
-                    >
-                      حذف
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
           </div>
 
           <button type="submit" disabled={busy} className="btn-accent w-full">
@@ -510,12 +402,11 @@ export default function WorkerDashboard() {
   )
 }
 
-function StatCard({ label, value, sub }) {
+function StatCard({ label, value }) {
   return (
     <div className="card">
       <p className="text-sm text-slate-500">{label}</p>
       <p className="text-3xl font-bold mt-1">{formatNumber(value)}</p>
-      <p className="text-xs text-slate-400 mt-1">{sub}</p>
     </div>
   )
 }

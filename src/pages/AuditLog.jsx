@@ -224,14 +224,8 @@ const FIELD_LABELS = {
   serial: 'السيريال',
   current_status: 'الحالة الحالية',
   current_stage: 'المرحلة الحالية',
-  amount: 'المبلغ',
   reason: 'السبب',
   decision: 'القرار',
-  period_start: 'بداية الفترة',
-  period_end: 'نهاية الفترة',
-  weight: 'الوزن',
-  unit_rate: 'سعر الوحدة',
-  currency: 'العملة',
   notes_text: 'ملاحظات',
 }
 
@@ -251,7 +245,6 @@ const VALUE_LABELS = {
   worker: 'عامل',
   supervisor: 'مشرف',
   accountant: 'حسابات',
-  management: 'إدارة',
 }
 
 // حقول معرّفات مش مفيدة في العرض

@@ -13,7 +13,7 @@ import {
 import Layout from '../components/Layout'
 import EntryDetails from '../components/EntryDetails'
 import { supabase } from '../lib/supabase'
-import { formatDate, formatNumber, startOfMonth, startOfWeek, toISODate, entryLines, entryUnits, entryOperationNames, entryTotalQty } from '../lib/dates'
+import { formatDate, formatNumber, startOfMonth, startOfWeek, toISODate, entryLines, entryOperationNames, entryTotalQty } from '../lib/dates'
 import { printReport } from '../lib/report'
 import { exportXlsx } from '../lib/xlsx'
 
@@ -73,7 +73,7 @@ export default function AccountantDashboard() {
         supabase.from('profiles').select('id', { count: 'exact', head: true }).eq('status', 'active'),
         supabase
           .from('production_entries')
-          .select('entry_date, quantity, operations(weight), entry_operations(quantity, operations(weight))')
+          .select('entry_date, quantity, operations(name_ar), entry_operations(quantity, operations(name_ar))')
           .in('status', ['approved', 'released'])
           .gte('entry_date', toISODate(from)),
       ])
@@ -89,7 +89,6 @@ export default function AccountantDashboard() {
         const r = list.filter(pred)
         return {
           laps: r.reduce((s, x) => s + entryLines(x).reduce((a, l) => a + l.quantity, 0), 0),
-          units: r.reduce((s, x) => s + entryUnits(x), 0),
         }
       }
       setOverview({
@@ -107,7 +106,7 @@ export default function AccountantDashboard() {
   useEffect(() => {
     let active = true
     const ENTRY_SELECT =
-      '*, profiles!production_entries_worker_id_fkey(full_name), operations(name_ar, weight), entry_operations(operation_id, quantity, operations(name_ar, weight))'
+      '*, profiles!production_entries_worker_id_fkey(full_name), operations(name_ar), entry_operations(operation_id, quantity, operations(name_ar))'
     async function load() {
       setLoading(true)
       const [e, ar] = await Promise.all([
@@ -161,21 +160,15 @@ export default function AccountantDashboard() {
       const name = e.profiles?.full_name ?? 'غير معروف'
       const lines = entryLines(e)
       const qty = lines.reduce((s, l) => s + l.quantity, 0)
-      const units = lines.reduce((s, l) => s + l.quantity * l.weight, 0)
-      if (!map.has(id)) map.set(id, { id, name, laps: 0, units: 0 })
+      if (!map.has(id)) map.set(id, { id, name, laps: 0 })
       const row = map.get(id)
       row.laps += qty
-      row.units += units
     }
-    return Array.from(map.values()).sort((a, b) => b.units - a.units)
+    return Array.from(map.values()).sort((a, b) => b.laps - a.laps)
   }, [filtered])
 
   const totals = useMemo(
-    () =>
-      rows.reduce(
-        (acc, r) => ({ laps: acc.laps + r.laps, units: acc.units + r.units }),
-        { laps: 0, units: 0 }
-      ),
+    () => rows.reduce((acc, r) => ({ laps: acc.laps + r.laps }), { laps: 0 }),
     [rows]
   )
 
@@ -204,13 +197,12 @@ export default function AccountantDashboard() {
     for (const e of filtered) {
       for (const l of entryLines(e)) {
         const name = l.name
-        if (!map.has(name)) map.set(name, { name, laps: 0, units: 0 })
+        if (!map.has(name)) map.set(name, { name, laps: 0 })
         const row = map.get(name)
         row.laps += l.quantity
-        row.units += l.quantity * l.weight
       }
     }
-    return Array.from(map.values()).sort((a, b) => b.units - a.units)
+    return Array.from(map.values()).sort((a, b) => b.laps - a.laps)
   }, [filtered])
 
   // الاتجاه اليومي
@@ -218,11 +210,10 @@ export default function AccountantDashboard() {
     const map = new Map()
     for (const e of filtered) {
       const day = e.entry_date
-      if (!map.has(day)) map.set(day, { date: day, label: formatDate(day), laps: 0, units: 0 })
+      if (!map.has(day)) map.set(day, { date: day, label: formatDate(day), laps: 0 })
       const row = map.get(day)
       const lines = entryLines(e)
       row.laps += lines.reduce((s, l) => s + l.quantity, 0)
-      row.units += lines.reduce((s, l) => s + l.quantity * l.weight, 0)
     }
     return Array.from(map.values()).sort((a, b) => a.date.localeCompare(b.date))
   }, [filtered])
@@ -234,8 +225,8 @@ export default function AccountantDashboard() {
   )
 
   function exportCSV() {
-    const head = ['#', 'العامل', 'عدد اللابات', 'الوحدات المرجّحة']
-    const body = rows.map((r, i) => [i + 1, r.name, r.laps, r.units])
+    const head = ['#', 'العامل', 'عدد اللابات']
+    const body = rows.map((r, i) => [i + 1, r.name, r.laps])
     const csv =
       '\uFEFF' +
       [head, ...body]
@@ -253,16 +244,16 @@ export default function AccountantDashboard() {
   }
 
   function exportExcel() {
-    const head = ['#', 'العامل', 'عدد اللابات', 'الوحدات المرجّحة']
-    const body = rows.map((r, i) => [i + 1, r.name, r.laps, r.units])
-    const opBody = byOperation.map((o) => [o.name, o.laps, o.units])
+    const head = ['#', 'العامل', 'عدد اللابات']
+    const body = rows.map((r, i) => [i + 1, r.name, r.laps])
+    const opBody = byOperation.map((o) => [o.name, o.laps])
     exportXlsx({
       filename: `yas-report_${range.start}_${range.end}.xlsx`,
       sheetName: 'التقرير',
       meta: [[`الفترة: ${range.start} ← ${range.end}`]],
       headers: head,
-      rows: [...body, [], ['التفصيل حسب نوع العملية'], ['العملية', 'لابات', 'وحدات'], ...opBody],
-      footer: ['', 'الإجمالي', totals.laps, totals.units],
+      rows: [...body, [], ['التفصيل حسب نوع العملية'], ['العملية', 'لابات'], ...opBody],
+      footer: ['', 'الإجمالي', totals.laps],
     })
   }
 
@@ -320,7 +311,7 @@ export default function AccountantDashboard() {
         body: {
           period: range,
           totals,
-          workers: rows.map((r) => ({ name: r.name, laps: r.laps, units: r.units })),
+          workers: rows.map((r) => ({ name: r.name, laps: r.laps })),
           entries: filtered.map((e) => ({
             worker: e.profiles?.full_name,
             operation: entryLines(e)
@@ -414,7 +405,6 @@ export default function AccountantDashboard() {
 
       <div className="grid gap-4 md:grid-cols-2 mb-6">
         <Stat label="إجمالي اللابات (الفترة)" value={totals.laps} />
-        <Stat label="الوحدات المرجّحة" value={totals.units} />
       </div>
 
       {/* الإدخالات المعتمدة من المشرف — بتوصل هنا أوتوماتيك بعد اعتماد المشرف */}
@@ -518,7 +508,7 @@ export default function AccountantDashboard() {
 
       <div className="grid gap-6 lg:grid-cols-2 mb-6">
         <div className="card min-w-0">
-          <h2 className="font-bold text-lg mb-3">الوحدات المرجّحة لكل عامل</h2>
+          <h2 className="font-bold text-lg mb-3">العدد لكل عامل</h2>
           <div style={{ width: '100%', height: 280 }}>
             <ResponsiveContainer>
               <BarChart data={rows} margin={{ top: 10, right: 10, left: 0, bottom: 40 }}>
@@ -526,7 +516,7 @@ export default function AccountantDashboard() {
                 <XAxis dataKey="name" angle={-30} textAnchor="end" interval="preserveStartEnd" height={60} tick={{ fontSize: 12 }} />
                 <YAxis tick={{ fontSize: 12 }} />
                 <Tooltip />
-                <Bar dataKey="units" fill="#1d4ed8" radius={[4, 4, 0, 0]} name="وحدات" />
+                <Bar dataKey="laps" fill="#1d4ed8" radius={[4, 4, 0, 0]} name="عدد" />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -541,18 +531,17 @@ export default function AccountantDashboard() {
                   <th>#</th>
                   <th>العامل</th>
                   <th>لابات</th>
-                  <th>وحدات</th>
                 </tr>
               </thead>
               <tbody>
                 {loading && (
                   <tr>
-                    <td colSpan={4} className="text-center text-slate-400 py-6">جاري التحميل…</td>
+                    <td colSpan={3} className="text-center text-slate-400 py-6">جاري التحميل…</td>
                   </tr>
                 )}
                 {!loading && rows.length === 0 && (
                   <tr>
-                    <td colSpan={4} className="text-center text-slate-400 py-6">مفيش بيانات في الفترة دي</td>
+                    <td colSpan={3} className="text-center text-slate-400 py-6">مفيش بيانات في الفترة دي</td>
                   </tr>
                 )}
                 {rows.map((r, i) => (
@@ -567,7 +556,6 @@ export default function AccountantDashboard() {
                       </button>
                     </td>
                     <td data-label="لابات">{formatNumber(r.laps)}</td>
-                    <td data-label="وحدات">{formatNumber(r.units)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -585,22 +573,20 @@ export default function AccountantDashboard() {
                 <tr>
                   <th>العملية</th>
                   <th>لابات</th>
-                  <th>وحدات</th>
                   <th>النسبة</th>
                 </tr>
               </thead>
               <tbody>
                 {byOperation.length === 0 && (
                   <tr>
-                    <td colSpan={4} className="text-center text-slate-400 py-6">مفيش بيانات في الفترة دي</td>
+                    <td colSpan={3} className="text-center text-slate-400 py-6">مفيش بيانات في الفترة دي</td>
                   </tr>
                 )}
                 {byOperation.map((o) => (
                   <tr key={o.name}>
                     <td data-label="العملية">{o.name}</td>
                     <td data-label="لابات">{formatNumber(o.laps)}</td>
-                    <td data-label="وحدات">{formatNumber(o.units)}</td>
-                    <td data-label="النسبة">{totals.units ? Math.round((o.units / totals.units) * 100) : 0}%</td>
+                    <td data-label="النسبة">{totals.laps ? Math.round((o.laps / totals.laps) * 100) : 0}%</td>
                   </tr>
                 ))}
               </tbody>
@@ -609,7 +595,7 @@ export default function AccountantDashboard() {
         </div>
 
         <div className="card min-w-0">
-          <h2 className="font-bold text-lg mb-3">الاتجاه اليومي (وحدات مرجّحة)</h2>
+          <h2 className="font-bold text-lg mb-3">الاتجاه اليومي (العدد)</h2>
           <div style={{ width: '100%', height: 280 }}>
             <ResponsiveContainer>
               <LineChart data={byDay} margin={{ top: 10, right: 10, left: 0, bottom: 40 }}>
@@ -617,7 +603,7 @@ export default function AccountantDashboard() {
                 <XAxis dataKey="label" angle={-30} textAnchor="end" interval="preserveStartEnd" height={60} tick={{ fontSize: 11 }} />
                 <YAxis tick={{ fontSize: 12 }} />
                 <Tooltip />
-                <Line type="monotone" dataKey="units" stroke="#1d4ed8" strokeWidth={2} name="وحدات" dot={{ r: 3 }} />
+                <Line type="monotone" dataKey="laps" stroke="#1d4ed8" strokeWidth={2} name="عدد" dot={{ r: 3 }} />
               </LineChart>
             </ResponsiveContainer>
           </div>
@@ -657,7 +643,6 @@ function WorkerEntriesModal({ worker, entries, onClose, onOpenEntry }) {
                 <th>التاريخ</th>
                 <th>العملية</th>
                 <th>العدد</th>
-                <th>وحدات</th>
                 <th>الملاحظة</th>
                 <th></th>
               </tr>
@@ -665,7 +650,7 @@ function WorkerEntriesModal({ worker, entries, onClose, onOpenEntry }) {
             <tbody>
               {entries.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="text-center text-slate-400 py-6">مفيش إدخالات في الفترة دي</td>
+                  <td colSpan={5} className="text-center text-slate-400 py-6">مفيش إدخالات في الفترة دي</td>
                 </tr>
               )}
               {entries.map((e) => (
@@ -677,7 +662,6 @@ function WorkerEntriesModal({ worker, entries, onClose, onOpenEntry }) {
                       .join(' + ')}
                   </td>
                   <td data-label="العدد">{formatNumber(entryLines(e).reduce((s, l) => s + l.quantity, 0))}</td>
-                  <td data-label="وحدات">{formatNumber(entryUnits(e))}</td>
                   <td data-label="الملاحظة" className="max-w-[200px] truncate" title={e.notes ?? ''}>{e.notes || '-'}</td>
                   <td data-label="إجراء">
                     <button onClick={() => onOpenEntry(e.id)} className="btn-ghost !py-1 !px-2 text-xs">

@@ -3,11 +3,10 @@ import StatusBadge from './StatusBadge'
 import { supabase } from '../lib/supabase'
 import { formatDate, formatNumber, entryLines, entryOperationNames } from '../lib/dates'
 
-// نافذة تفاصيل الإدخال: العملية + السيريالات + الملاحظات + الصور
+// نافذة تفاصيل الإدخال: العملية + السيريالات + الملاحظات
 export default function EntryDetails({ entryId, onClose, onApprove }) {
   const [entry, setEntry] = useState(null)
   const [serials, setSerials] = useState([])
-  const [images, setImages] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
@@ -16,16 +15,15 @@ export default function EntryDetails({ entryId, onClose, onApprove }) {
     async function load() {
       setLoading(true)
       setError('')
-      const [e, s, a] = await Promise.all([
+      const [e, s] = await Promise.all([
         supabase
           .from('production_entries')
           .select(
-            '*, profiles!production_entries_worker_id_fkey(full_name), operations(name_ar, name_en, weight), entry_operations(quantity, operations(name_ar, name_en, weight))'
+            '*, profiles!production_entries_worker_id_fkey(full_name), operations(name_ar, name_en), entry_operations(quantity, operations(name_ar, name_en))'
           )
           .eq('id', entryId)
           .single(),
-        supabase.from('lap_serials').select('serial, direction').eq('entry_id', entryId).order('created_at'),
-        supabase.from('attachments').select('storage_path, file_type').eq('entry_id', entryId),
+        supabase.from('lap_serials').select('serial').eq('entry_id', entryId).order('created_at'),
       ])
       if (!active) return
 
@@ -35,19 +33,8 @@ export default function EntryDetails({ entryId, onClose, onApprove }) {
         return
       }
 
-      const signed = await Promise.all(
-        (a.data ?? []).map(async (att) => {
-          const { data: signedUrl } = await supabase.storage
-            .from('laps')
-            .createSignedUrl(att.storage_path, 3600)
-          return { ...att, url: signedUrl?.signedUrl ?? null }
-        })
-      )
-      if (!active) return
-
       setEntry(e.data)
       setSerials(s.data ?? [])
-      setImages(signed)
       setLoading(false)
     }
     load()
@@ -66,7 +53,6 @@ export default function EntryDetails({ entryId, onClose, onApprove }) {
 
   const lines = entry ? entryLines(entry) : []
   const totalQty = lines.reduce((s, l) => s + l.quantity, 0)
-  const totalUnits = lines.reduce((s, l) => s + l.quantity * l.weight, 0)
 
   return (
     <div
@@ -97,7 +83,6 @@ export default function EntryDetails({ entryId, onClose, onApprove }) {
               <Field label="الحالة" value={<StatusBadge status={entry.status} />} />
               <Field label="العمليات" value={entryOperationNames(entry)} />
               <Field label="عدد اللابات" value={formatNumber(totalQty)} />
-              <Field label="الوحدات المرجّحة" value={formatNumber(totalUnits)} />
             </div>
 
             <Section title={`العمليات (${lines.length})`}>
@@ -107,8 +92,6 @@ export default function EntryDetails({ entryId, onClose, onApprove }) {
                     <tr>
                       <th>العملية</th>
                       <th>العدد</th>
-                      <th>الوزن</th>
-                      <th>وحدات</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -116,8 +99,6 @@ export default function EntryDetails({ entryId, onClose, onApprove }) {
                       <tr key={`${l.operation_id}-${i}`}>
                         <td>{l.name}</td>
                         <td>{formatNumber(l.quantity)}</td>
-                        <td>{formatNumber(l.weight)}</td>
-                        <td>{formatNumber(l.quantity * l.weight)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -132,14 +113,11 @@ export default function EntryDetails({ entryId, onClose, onApprove }) {
                 <div className="flex flex-wrap gap-2">
                   {serials.map((s) => (
                     <span
-                      key={`${s.direction}-${s.serial}`}
+                      key={s.serial}
                       className="badge bg-slate-100 font-mono text-slate-700"
                       dir="ltr"
                     >
                       {s.serial}
-                      <span className="mr-1 text-[10px] text-slate-500">
-                        {s.direction === 'in' ? '(استلام)' : '(إصدار)'}
-                      </span>
                     </span>
                   ))}
                 </div>
@@ -157,32 +135,6 @@ export default function EntryDetails({ entryId, onClose, onApprove }) {
                 </p>
               </Section>
             )}
-
-            <Section title={`الصور (${images.length})`}>
-              {images.length === 0 ? (
-                <p className="text-sm text-slate-400">مفيش صور مرفقة.</p>
-              ) : (
-                <div className="grid grid-cols-3 gap-2 md:grid-cols-4">
-                  {images.map((img) => (
-                    <a
-                      key={img.storage_path}
-                      href={img.url ?? '#'}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="block overflow-hidden rounded-lg border border-slate-200"
-                    >
-                      {img.url ? (
-                        <img src={img.url} alt="مرفق" className="h-24 w-full object-cover" />
-                      ) : (
-                        <span className="flex h-24 items-center justify-center text-xs text-slate-400">
-                          تعذّر العرض
-                        </span>
-                      )}
-                    </a>
-                  ))}
-                </div>
-              )}
-            </Section>
 
             {onApprove && ['draft', 'submitted'].includes(entry.status) && (
               <button onClick={() => onApprove(entry)} className="btn-primary w-full">

@@ -5,17 +5,16 @@ import { supabase } from '../lib/supabase'
 import { buildPassword, buildUsername, emailFor } from '../lib/translit'
 import { formatDate } from '../lib/dates'
 
-const ROLE_LABEL = { worker: 'عامل', supervisor: 'مشرف', accountant: 'حسابات', management: 'إدارة' }
+const ROLE_LABEL = { worker: 'عامل', supervisor: 'مشرف', accountant: 'حسابات' }
 const ROLE_OPTIONS = [
   { value: 'worker', label: 'عامل' },
   { value: 'supervisor', label: 'مشرف' },
   { value: 'accountant', label: 'حسابات' },
-  { value: 'management', label: 'إدارة' },
 ]
 
 export default function EmployeeAccounts() {
   const { profile } = useAuth()
-  // الأدمن (الحسابات) بس اللي يقدر ينشئ أدوار الحسابات/الإدارة
+  // الأدمن (الحسابات) بس اللي يقدر ينشئ دور الحسابات
   const roleOptions = profile?.role === 'accountant' ? ROLE_OPTIONS : ROLE_OPTIONS.slice(0, 2)
   const [profiles, setProfiles] = useState([])
   const [loading, setLoading] = useState(true)

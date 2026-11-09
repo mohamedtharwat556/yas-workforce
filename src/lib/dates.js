@@ -27,7 +27,7 @@ export function formatDate(value) {
   return new Date(value).toLocaleDateString('ar-EG', { year: 'numeric', month: '2-digit', day: '2-digit' })
 }
 
-// بنود الإدخال: كل بند = عملية + وزن + عدد.
+// بنود الإدخال: كل بند = عملية + عدد.
 // الإدخال الواحد يقدر يجمع أكتر من عملية (entry_operations).
 // لو الإدخال مالوش بنود (بيانات قديمة)، بترجع العملية المفردة كبند واحد.
 export function entryLines(entry) {
@@ -36,7 +36,6 @@ export function entryLines(entry) {
     return lines.map((l) => ({
       operation_id: l.operation_id,
       name: l.operations?.name_ar ?? '-',
-      weight: Number(l.operations?.weight ?? 0),
       quantity: Number(l.quantity ?? 0),
     }))
   }
@@ -44,7 +43,6 @@ export function entryLines(entry) {
     {
       operation_id: entry?.operation_id,
       name: entry?.operations?.name_ar ?? '-',
-      weight: Number(entry?.operations?.weight ?? 0),
       quantity: Number(entry?.quantity ?? 0),
     },
   ]
@@ -55,19 +53,9 @@ export function entryTotalQty(entry) {
   return entryLines(entry).reduce((s, l) => s + l.quantity, 0)
 }
 
-// الوحدات المرجّحة للإدخال = مجموع (عدد البند × وزنه)
-export function entryUnits(entry) {
-  return entryLines(entry).reduce((s, l) => s + l.quantity * l.weight, 0)
-}
-
 // أسماء العمليات في الإدخال مفصولة بـ +
 export function entryOperationNames(entry) {
   return entryLines(entry).map((l) => l.name).join(' + ')
-}
-
-// الوحدات المرجّحة = مجموع (العدد × وزن العملية) لكل البنود
-export function weightedUnits(entries) {
-  return entries.reduce((sum, e) => sum + entryUnits(e), 0)
 }
 
 export function formatNumber(n) {

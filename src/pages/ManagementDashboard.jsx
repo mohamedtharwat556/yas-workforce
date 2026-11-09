@@ -13,7 +13,7 @@ import {
 import Layout from '../components/Layout'
 import StatusBadge from '../components/StatusBadge'
 import { supabase } from '../lib/supabase'
-import { formatDate, formatNumber, startOfMonth, toISODate, entryUnits } from '../lib/dates'
+import { formatDate, formatNumber, startOfMonth, toISODate, entryTotalQty } from '../lib/dates'
 import { exportXlsx } from '../lib/xlsx'
 import { printReport } from '../lib/report'
 
@@ -95,7 +95,7 @@ export default function ManagementDashboard() {
     const { data } = await supabase
       .from('production_entries')
       .select(
-        'entry_date, quantity, status, laptop_id, worker_id, profiles!production_entries_worker_id_fkey(full_name), operations(name_ar, weight), entry_operations(quantity, operations(name_ar, weight))'
+        'entry_date, quantity, status, laptop_id, worker_id, profiles!production_entries_worker_id_fkey(full_name), operations(name_ar), entry_operations(quantity, operations(name_ar))'
       )
       .gte('entry_date', prevRange.start)
       .lte('entry_date', to)
@@ -119,30 +119,30 @@ export default function ManagementDashboard() {
       const byWorker = new Map()
       const status = {}
       const laptopsSet = new Set()
-      let units = 0
+      let qty = 0
       for (const e of list) {
-        const u = entryUnits(e)
-        units += u
+        const u = entryTotalQty(e)
+        qty += u
         status[e.status] = (status[e.status] ?? 0) + 1
         if (e.laptop_id) laptopsSet.add(e.laptop_id)
 
-        const d = byDay.get(e.entry_date) ?? { date: e.entry_date, units: 0, entries: 0 }
-        d.units += u
+        const d = byDay.get(e.entry_date) ?? { date: e.entry_date, qty: 0, entries: 0 }
+        d.qty += u
         d.entries += 1
         byDay.set(e.entry_date, d)
 
         const name = e.profiles?.full_name ?? 'غير معروف'
-        const w = byWorker.get(name) ?? { name, units: 0, entries: 0 }
-        w.units += u
+        const w = byWorker.get(name) ?? { name, qty: 0, entries: 0 }
+        w.qty += u
         w.entries += 1
         byWorker.set(name, w)
       }
       return {
-        units,
+        qty,
         laps: laptopsSet.size,
         status,
         daily: Array.from(byDay.values()).sort((a, b) => a.date.localeCompare(b.date)),
-        workers: Array.from(byWorker.values()).sort((a, b) => b.units - a.units),
+        workers: Array.from(byWorker.values()).sort((a, b) => b.qty - a.qty),
         total: list.length,
       }
     }
@@ -157,7 +157,7 @@ export default function ManagementDashboard() {
 
   const rejected = cur.status.returned ?? 0
   const rejectionRate = cur.total ? (rejected / cur.total) * 100 : 0
-  const unitsDelta = pct(cur.units, pc.units)
+  const unitsDelta = pct(cur.qty, pc.qty)
 
   function exportExcel() {
     exportXlsx({
@@ -166,11 +166,11 @@ export default function ManagementDashboard() {
       title: 'تقرير الإدارة — الإنتاجية',
       meta: [
         [`الفترة: ${from} ← ${to}`],
-        [`الوحدات المرجّحة: ${formatNumber(cur.units)}`],
+        [`إجمالي العدد: ${formatNumber(cur.qty)}`],
         [`معدّل الرفض: ${formatNumber(rejectionRate)}%`],
       ],
-      headers: ['#', 'الموظف', 'عدد اللابات', 'الوحدات المرجّحة'],
-      rows: cur.workers.map((r, i) => [i + 1, r.name, '', r.units]),
+      headers: ['#', 'الموظف', 'عدد اللابات', 'إجمالي العدد'],
+      rows: cur.workers.map((r, i) => [i + 1, r.name, '', r.qty]),
     })
   }
 
@@ -178,8 +178,8 @@ export default function ManagementDashboard() {
     printReport({
       title: 'تقرير الإدارة — الإنتاجية',
       period: { start: from, end: to },
-      totals: { laps: cur.laps, units: cur.units },
-      rows: cur.workers.map((r) => ({ name: r.name, laps: r.entries, units: r.units })),
+      totals: { laps: cur.laps },
+      rows: cur.workers.map((r) => ({ name: r.name, laps: r.entries })),
     })
   }
 
@@ -234,7 +234,7 @@ export default function ManagementDashboard() {
 
       {/* المؤشرات المتقدمة */}
       <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <Stat label="وحدات الفترة" value={formatNumber(cur.units)} />
+        <Stat label="إجمالي العدد" value={formatNumber(cur.qty)} />
         <Stat
           label="التغيّر عن الفترة السابقة"
           value={unitsDelta === null ? '—' : `${unitsDelta >= 0 ? '+' : ''}${formatNumber(unitsDelta)}%`}
@@ -247,7 +247,7 @@ export default function ManagementDashboard() {
       {/* اتجاه يومي + ترتيب العمال */}
       <div className="mb-4 grid gap-4 lg:grid-cols-2">
         <div className="card">
-          <h2 className="mb-3 font-bold">الاتجاه اليومي (وحدات مرجّحة)</h2>
+          <h2 className="mb-3 font-bold">الاتجاه اليومي (العدد)</h2>
           {cur.daily.length === 0 ? (
             <p className="py-10 text-center text-sm text-slate-400">
               {loadingAnalytics ? 'جاري التحميل…' : 'مفيش بيانات في الفترة دي'}
@@ -259,14 +259,14 @@ export default function ManagementDashboard() {
                 <XAxis dataKey="date" tick={{ fontSize: 11 }} />
                 <YAxis tick={{ fontSize: 11 }} />
                 <Tooltip />
-                <Line type="monotone" dataKey="units" name="وحدات" stroke="#1d4ed8" strokeWidth={2} dot={false} />
+                <Line type="monotone" dataKey="qty" name="عدد" stroke="#1d4ed8" strokeWidth={2} dot={false} />
               </LineChart>
             </ResponsiveContainer>
           )}
         </div>
 
         <div className="card">
-          <h2 className="mb-3 font-bold">ترتيب العمال (أعلى 7 بالوحدات)</h2>
+          <h2 className="mb-3 font-bold">ترتيب العمال (أعلى 7 بالعدد)</h2>
           {cur.workers.length === 0 ? (
             <p className="py-10 text-center text-sm text-slate-400">
               {loadingAnalytics ? 'جاري التحميل…' : 'مفيش بيانات في الفترة دي'}
@@ -278,7 +278,7 @@ export default function ManagementDashboard() {
                 <XAxis dataKey="name" tick={{ fontSize: 10 }} interval={0} />
                 <YAxis tick={{ fontSize: 11 }} />
                 <Tooltip />
-                <Bar dataKey="units" name="وحدات" fill="#1d4ed8" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="qty" name="عدد" fill="#1d4ed8" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           )}
@@ -299,7 +299,7 @@ export default function ManagementDashboard() {
               </tr>
             </thead>
             <tbody>
-              <CompareRow label="الوحدات المرجّحة" current={cur.units} previous={pc.units} />
+              <CompareRow label="إجمالي العدد" current={cur.qty} previous={pc.qty} />
               <CompareRow label="عدد اللابات" current={cur.laps} previous={pc.laps} />
               <CompareRow label="عدد الإدخالات" current={cur.total} previous={pc.total} />
               <tr>

@@ -14,12 +14,11 @@ create table if not exists public.profiles (
   created_at timestamptz not null default now()
 );
 
--- 2) أنواع العمليات + وزن كل عملية (Weighted)
+-- 2) أنواع العمليات
 create table if not exists public.operations (
   id serial primary key,
   name_ar text not null,
   name_en text not null unique,
-  weight numeric not null default 1,
   active boolean not null default true,
   sort_order int not null default 0
 );
@@ -60,33 +59,7 @@ create table if not exists public.attachments (
   created_at timestamptz not null default now()
 );
 
--- 6) قواعد الحافز (Formula)
-create table if not exists public.incentive_rules (
-  id serial primary key,
-  unit_rate numeric not null default 10,
-  currency text not null default 'EGP',
-  period text not null default 'monthly',
-  updated_at timestamptz not null default now()
-);
-
--- 6.5) كشوف الحوافز المعتمدة (snapshots ثابتة عند إغلاق الشهر)
-create table if not exists public.incentive_snapshots (
-  id uuid primary key default gen_random_uuid(),
-  period_start date not null,
-  period_end date not null,
-  worker_id uuid not null references public.profiles(id) on delete cascade,
-  worker_name text not null,
-  laps int not null default 0,
-  units numeric not null default 0,
-  unit_rate numeric not null default 0,
-  currency text not null default 'EGP',
-  incentive numeric not null default 0,
-  locked_by uuid references public.profiles(id) on delete set null,
-  locked_at timestamptz not null default now(),
-  unique (period_start, period_end, worker_id)
-);
-
--- 7) تقارير الـ AI
+-- 6) تقارير الـ AI
 create table if not exists public.ai_insights (
   id uuid primary key default gen_random_uuid(),
   period_start date,
@@ -155,8 +128,6 @@ alter table public.operations         enable row level security;
 alter table public.production_entries enable row level security;
 alter table public.lap_serials        enable row level security;
 alter table public.attachments        enable row level security;
-alter table public.incentive_rules    enable row level security;
-alter table public.incentive_snapshots enable row level security;
 alter table public.ai_insights        enable row level security;
 
 -- profiles
@@ -243,45 +214,21 @@ create policy attachments_insert on public.attachments for insert
     where e.id = entry_id and e.worker_id = auth.uid()
   ));
 
--- incentive_rules
-drop policy if exists rules_select on public.incentive_rules;
-create policy rules_select on public.incentive_rules for select
-  using (auth.uid() is not null);
-
-drop policy if exists rules_write on public.incentive_rules;
-create policy rules_write on public.incentive_rules for all
-  using (public.current_role() in ('supervisor','accountant'))
-  with check (public.current_role() in ('supervisor','accountant'));
-
 -- ai_insights
 drop policy if exists insights_select on public.ai_insights;
 create policy insights_select on public.ai_insights for select
   using (public.current_role() in ('supervisor','accountant'));
 
--- incentive_snapshots (كشوف الحوافز المعتمدة)
-drop policy if exists snapshots_select on public.incentive_snapshots;
-create policy snapshots_select on public.incentive_snapshots for select
-  using (public.current_role() in ('supervisor','accountant'));
-
-drop policy if exists snapshots_write on public.incentive_snapshots;
-create policy snapshots_write on public.incentive_snapshots for all
-  using (public.current_role() in ('supervisor','accountant'))
-  with check (public.current_role() in ('supervisor','accountant'));
-
 -- ============================================================
--- بذور البيانات: أنواع العمليات + أوزانها + سعر الوحدة
+-- بذور البيانات: أنواع العمليات
 -- ============================================================
-insert into public.operations (name_ar, name_en, weight, sort_order) values
-  ('Test خفيف',      'light_test',        1,   1),
-  ('Test تقيل',      'heavy_test',        2,   2),
-  ('صيانة خفيفة',    'light_maintenance', 1.5, 3),
-  ('صيانة تقيلة',    'heavy_maintenance', 3,   4),
-  ('تجميع',          'assembly',          2,   5)
+insert into public.operations (name_ar, name_en, sort_order) values
+  ('Test خفيف',      'light_test',        1),
+  ('Test تقيل',      'heavy_test',        2),
+  ('صيانة خفيفة',    'light_maintenance', 3),
+  ('صيانة تقيلة',    'heavy_maintenance', 4),
+  ('تجميع',          'assembly',          5)
 on conflict (name_en) do nothing;
-
-insert into public.incentive_rules (unit_rate, currency, period)
-select 10, 'EGP', 'monthly'
-where not exists (select 1 from public.incentive_rules);
 
 -- ============================================================
 -- Storage: بكت للصور (لابات)

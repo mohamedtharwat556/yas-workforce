@@ -3,7 +3,7 @@ import Layout from '../components/Layout'
 import StatusBadge from '../components/StatusBadge'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
-import { formatDate, formatNumber, startOfMonth, startOfWeek, toISODate, entryLines, entryUnits, entryOperationNames } from '../lib/dates'
+import { formatDate, formatNumber, startOfMonth, startOfWeek, toISODate, entryLines, entryOperationNames } from '../lib/dates'
 import { exportXlsx } from '../lib/xlsx'
 import { printReport } from '../lib/report'
 
@@ -19,7 +19,7 @@ export default function WorkerIncentives() {
       setLoading(true)
       const { data } = await supabase
         .from('production_entries')
-        .select('*, operations(name_ar, weight), entry_operations(operation_id, quantity, operations(name_ar, weight))')
+        .select('*, operations(name_ar), entry_operations(operation_id, quantity, operations(name_ar))')
         .eq('worker_id', user.id)
         .in('status', ['approved', 'released'])
         .order('entry_date', { ascending: false })
@@ -39,7 +39,6 @@ export default function WorkerIncentives() {
     const monthStart = toISODate(startOfMonth())
     const calc = (rows) => ({
       laps: rows.reduce((s, e) => s + entryLines(e).reduce((a, l) => a + l.quantity, 0), 0),
-      units: rows.reduce((s, e) => s + entryUnits(e), 0),
     })
     return {
       today: calc(entries.filter((e) => e.entry_date === today)),
@@ -57,18 +56,16 @@ export default function WorkerIncentives() {
       if (e.entry_date < monthStart) continue
       for (const l of entryLines(e)) {
         const name = l.name
-        if (!map.has(name)) map.set(name, { name, laps: 0, units: 0 })
+        if (!map.has(name)) map.set(name, { name, laps: 0 })
         const row = map.get(name)
         row.laps += l.quantity
-        row.units += l.quantity * l.weight
       }
     }
-    return Array.from(map.values()).sort((a, b) => b.units - a.units)
+    return Array.from(map.values()).sort((a, b) => b.laps - a.laps)
   }, [entries])
 
   const monthTotals = useMemo(
-    () =>
-      byOperation.reduce((a, r) => ({ laps: a.laps + r.laps, units: a.units + r.units }), { laps: 0, units: 0 }),
+    () => byOperation.reduce((a, r) => ({ laps: a.laps + r.laps }), { laps: 0 }),
     [byOperation]
   )
 
@@ -78,14 +75,14 @@ export default function WorkerIncentives() {
       sheetName: 'إنتاجي',
       meta: [
         [`العامل: ${profile?.full_name ?? ''}`],
-        [`إجمالي تراكمي: ${formatNumber(stats.all.laps)} لاب · ${formatNumber(stats.all.units)} وحدة مرجّحة`],
+        [`إجمالي تراكمي: ${formatNumber(stats.all.laps)} لاب`],
       ],
-      headers: ['التاريخ', 'العملية', 'العدد', 'وحدات مرجّحة', 'الحالة'],
+      headers: ['التاريخ', 'العملية', 'العدد', 'الحالة'],
       rows: entries.map((e) => {
         const qty = entryLines(e).reduce((s, l) => s + l.quantity, 0)
-        return [e.entry_date, entryOperationNames(e), qty, entryUnits(e), e.status]
+        return [e.entry_date, entryOperationNames(e), qty, e.status]
       }),
-      footer: ['', 'الإجمالي', stats.all.laps, stats.all.units, ''],
+      footer: ['', 'الإجمالي', stats.all.laps, ''],
     })
   }
 
@@ -93,8 +90,8 @@ export default function WorkerIncentives() {
     printReport({
       title: 'كشف إنتاجي',
       period: { start: toISODate(startOfMonth()), end: toISODate(new Date()) },
-      totals: { laps: monthTotals.laps, units: monthTotals.units },
-      rows: byOperation.map((o) => ({ name: o.name, laps: o.laps, units: o.units })),
+      totals: { laps: monthTotals.laps },
+      rows: byOperation.map((o) => ({ name: o.name, laps: o.laps })),
       rowsTitle: 'تفصيل الشهر حسب نوع العملية',
       rowsLabel: 'العملية',
     })
@@ -136,22 +133,20 @@ export default function WorkerIncentives() {
                 <tr>
                   <th>العملية</th>
                   <th>لابات</th>
-                  <th>وحدات</th>
                   <th>النسبة</th>
                 </tr>
               </thead>
               <tbody>
                 {byOperation.length === 0 && (
                   <tr>
-                    <td colSpan={4} className="text-center text-slate-400 py-6">مفيش إدخالات معتمدة الشهر ده</td>
+                    <td colSpan={3} className="text-center text-slate-400 py-6">مفيش إدخالات معتمدة الشهر ده</td>
                   </tr>
                 )}
                 {byOperation.map((o) => (
                   <tr key={o.name}>
                     <td data-label="العملية">{o.name}</td>
                     <td data-label="لابات">{formatNumber(o.laps)}</td>
-                    <td data-label="وحدات">{formatNumber(o.units)}</td>
-                    <td data-label="النسبة">{monthTotals.units ? Math.round((o.units / monthTotals.units) * 100) : 0}%</td>
+                    <td data-label="النسبة">{monthTotals.laps ? Math.round((o.laps / monthTotals.laps) * 100) : 0}%</td>
                   </tr>
                 ))}
               </tbody>
@@ -163,7 +158,7 @@ export default function WorkerIncentives() {
           <h2 className="font-bold text-lg mb-3">
             آخر الإدخالات المعتمدة{' '}
             <span className="text-sm font-normal text-slate-400">
-              (إجمالي تراكمي: {formatNumber(stats.all.laps)} لاب · {formatNumber(stats.all.units)} وحدة)
+              (إجمالي تراكمي: {formatNumber(stats.all.laps)} لاب)
             </span>
           </h2>
           <div className="table-wrap">
@@ -173,19 +168,18 @@ export default function WorkerIncentives() {
                   <th>التاريخ</th>
                   <th>العملية</th>
                   <th>العدد</th>
-                  <th>وحدات</th>
                   <th>الحالة</th>
                 </tr>
               </thead>
               <tbody>
                 {loading && (
                   <tr>
-                    <td colSpan={5} className="text-center text-slate-400 py-6">جاري التحميل…</td>
+                    <td colSpan={4} className="text-center text-slate-400 py-6">جاري التحميل…</td>
                   </tr>
                 )}
                 {!loading && entries.length === 0 && (
                   <tr>
-                    <td colSpan={5} className="text-center text-slate-400 py-6">مفيش إدخالات معتمدة لسه</td>
+                    <td colSpan={4} className="text-center text-slate-400 py-6">مفيش إدخالات معتمدة لسه</td>
                   </tr>
                 )}
                 {entries.slice(0, 30).map((e) => (
@@ -193,7 +187,6 @@ export default function WorkerIncentives() {
                     <td data-label="التاريخ">{formatDate(e.entry_date)}</td>
                     <td data-label="العملية">{entryOperationNames(e)}</td>
                     <td data-label="العدد">{formatNumber(entryLines(e).reduce((s, l) => s + l.quantity, 0))}</td>
-                    <td data-label="وحدات">{formatNumber(entryUnits(e))}</td>
                     <td data-label="الحالة">
                       <StatusBadge status={e.status} />
                     </td>
@@ -213,7 +206,6 @@ function StatCard({ label, data }) {
     <div className="card">
       <p className="text-sm text-slate-500">{label}</p>
       <p className="text-3xl font-bold mt-1">{formatNumber(data.laps)}</p>
-      <p className="text-xs text-slate-400 mt-1">{formatNumber(data.units)} وحدة مرجّحة</p>
     </div>
   )
 }

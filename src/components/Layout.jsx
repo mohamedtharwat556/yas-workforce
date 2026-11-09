@@ -18,16 +18,12 @@ const NAV = {
     { to: '/accountant', label: 'التقارير', short: 'تقارير' },
     { to: '/supervisor', label: 'لوحة المشرف', short: 'المشرف' },
     { to: '/supervisor/accounts', label: 'إدارة الحسابات', short: 'حسابات' },
-    { to: '/audit', label: 'سجل الأوديت', short: 'أوديت' },
-  ],
-  management: [
     { to: '/management', label: 'لوحة الإدارة', short: 'الإدارة' },
-    { to: '/laptops', label: 'مسار اللاب', short: 'لابات' },
     { to: '/audit', label: 'سجل الأوديت', short: 'أوديت' },
   ],
 }
 
-const ROLE_LABEL = { worker: 'عامل', supervisor: 'مشرف', accountant: 'الحسابات', management: 'إدارة' }
+const ROLE_LABEL = { worker: 'عامل', supervisor: 'مشرف', accountant: 'الحسابات' }
 
 // أيقونات SVG بسيطة لكل مسار
 const ICONS = {
