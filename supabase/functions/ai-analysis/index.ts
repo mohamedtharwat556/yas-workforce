@@ -19,6 +19,42 @@ function json(payload: unknown, status = 200) {
   })
 }
 
+const GEMINI_TIMEOUT_MS = 15000
+
+// نداء موديل واحد مع مهلة زمنية — يرجّع إمّا الملخص أو خطأ واضح (بدون ما يعلّق الدالة)
+async function callGemini(model: string, key: string, prompt: string) {
+  const ctrl = new AbortController()
+  const timer = setTimeout(() => ctrl.abort(), GEMINI_TIMEOUT_MS)
+  try {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          systemInstruction: {
+            parts: [{ text: 'أنت محلل بيانات دقيق ومختصر، تكتب بالعربية.' }],
+          },
+          contents: [{ role: 'user', parts: [{ text: prompt }] }],
+          generationConfig: { temperature: 0.3 },
+        }),
+        signal: ctrl.signal,
+      },
+    )
+    if (!res.ok) {
+      return { ok: false as const, status: res.status, text: await res.text() }
+    }
+    const out = await res.json()
+    const summary =
+      out?.candidates?.[0]?.content?.parts?.map((p: any) => p?.text ?? '').join('') ?? ''
+    return { ok: true as const, summary }
+  } catch (err) {
+    return { ok: false as const, status: 0, text: (err as Error).message }
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 function buildPrompt(body: any): string {
   const { period, totals, workers, entries } = body ?? {}
   const notes = (entries ?? [])
@@ -70,32 +106,34 @@ Deno.serve(async (req) => {
     }
 
     const body = await req.json()
+    const prompt = buildPrompt(body)
 
-    // 3) نداء الموديل (Google Gemini)
-    const model = Deno.env.get('GEMINI_MODEL') ?? 'gemini-3.8-flash'
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiKey}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          systemInstruction: {
-            parts: [{ text: 'أنت محلل بيانات دقيق ومختصر، تكتب بالعربية.' }],
-          },
-          contents: [{ role: 'user', parts: [{ text: buildPrompt(body) }] }],
-          generationConfig: { temperature: 0.3 },
-        }),
-      },
-    )
+    // 3) نداء الموديل (Google Gemini) — مع مهلة وإعادة محاولة وموديل بديل لو السيرفر مزحوم
+    const preferred = Deno.env.get('GEMINI_MODEL') ?? 'gemini-3.8-flash'
+    const models = Array.from(new Set([preferred, 'gemini-flash-latest']))
+    let lastErr = ''
+    let summary = ''
 
-    if (!res.ok) {
-      const text = await res.text()
-      return json({ error: `فشل نداء الموديل: ${text}` }, 502)
+    outer: for (const model of models) {
+      const attempts = model === preferred ? 2 : 1
+      for (let attempt = 0; attempt < attempts; attempt++) {
+        const r = await callGemini(model, geminiKey, prompt)
+        if (r.ok) {
+          summary = r.summary
+          break outer
+        }
+        lastErr = `[${model}] ${r.text}`
+        if (r.status === 404) break // الموديل مش موجود — جرّب اللي بعده
+        if (attempt < attempts - 1) await new Promise((res) => setTimeout(res, 1500))
+      }
     }
 
-    const out = await res.json()
-    const summary =
-      out?.candidates?.[0]?.content?.parts?.map((p: any) => p?.text ?? '').join('') ?? ''
+    if (!summary) {
+      return json(
+        { error: `تعذّر تشغيل التحليل دلوقتي (موديل جوجل مزحوم). جرّب تاني بعد شوية.\n${lastErr}` },
+        502,
+      )
+    }
 
     // 4) خزّن التقرير
     await admin.from('ai_insights').insert({
