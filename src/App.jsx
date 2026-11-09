@@ -116,7 +116,7 @@ export default function App() {
         <Route
           path="/password"
           element={
-            <ProtectedRoute roles={['worker', 'supervisor', 'accountant']}>
+            <ProtectedRoute roles={['supervisor', 'accountant']}>
               <ChangePassword />
             </ProtectedRoute>
           }

@@ -104,26 +104,29 @@ export default function Layout({ title, children }) {
               {profile?.full_name} · <span className="font-medium text-white">{ROLE_LABEL[profile?.role] ?? profile?.role}</span>
             </span>
             <NotificationBell />
-            <Link
-              to="/password"
-              aria-label="تغيير كلمة المرور"
-              title="تغيير كلمة المرور"
-              className="rounded-lg border border-white/40 bg-white/10 p-2 text-white hover:bg-white/20"
-            >
-              <svg
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.8"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                className="h-5 w-5"
-                aria-hidden="true"
+            {/* تغيير كلمة المرور متاح للمشرف والحسابات بس — العامل بياخد باسورده من الإدارة */}
+            {profile?.role !== 'worker' && (
+              <Link
+                to="/password"
+                aria-label="تغيير كلمة المرور"
+                title="تغيير كلمة المرور"
+                className="rounded-lg border border-white/40 bg-white/10 p-2 text-white hover:bg-white/20"
               >
-                <circle cx="8" cy="15" r="4" />
-                <path d="M10.85 12.15 19 4M17 5l2 2M14 8l2 2" />
-              </svg>
-            </Link>
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="h-5 w-5"
+                  aria-hidden="true"
+                >
+                  <circle cx="8" cy="15" r="4" />
+                  <path d="M10.85 12.15 19 4M17 5l2 2M14 8l2 2" />
+                </svg>
+              </Link>
+            )}
             <button
               onClick={signOut}
               className="btn border border-white/40 bg-white/10 !px-3 !py-1 text-sm text-white hover:bg-white/20"
