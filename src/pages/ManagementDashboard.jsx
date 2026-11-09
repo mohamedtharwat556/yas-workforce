@@ -17,6 +17,20 @@ import { formatDate, formatNumber, startOfMonth, toISODate, entryTotalQty } from
 import { exportXlsx } from '../lib/xlsx'
 import { printReport } from '../lib/report'
 
+// استخراج رسالة الخطأ الحقيقية من دالة Edge لما ترجع حالة غير 2xx
+async function edgeErrorMessage(error) {
+  try {
+    const res = error?.context
+    if (res && typeof res.clone === 'function') {
+      const body = await res.clone().json()
+      if (body?.error) return body.error
+    }
+  } catch {
+    /* نتجاهل ونجرّب الرسالة الافتراضية */
+  }
+  return error?.message || 'تعذّر تشغيل التحليل.'
+}
+
 const STATUS_ORDER = [
   'received',
   'in_progress',
@@ -54,17 +68,14 @@ export default function ManagementDashboard() {
   const [laptops, setLaptops] = useState([])
   const [movements, setMovements] = useState([])
   const [entries, setEntries] = useState([])
-  const [loading, setLoading] = useState(true)
   const [loadingAnalytics, setLoadingAnalytics] = useState(true)
 
   const [from, setFrom] = useState(() => toISODate(startOfMonth()))
   const [to, setTo] = useState(() => toISODate(new Date()))
 
-  const monthCounts = useMemo(() => {
-    const m = {}
-    for (const l of laptops) m[l.current_status] = (m[l.current_status] ?? 0) + 1
-    return m
-  }, [laptops])
+  const [ai, setAi] = useState(null)
+  const [aiBusy, setAiBusy] = useState(false)
+  const [aiError, setAiError] = useState('')
 
   // الفترة السابقة (نفس طول الفترة المختارة) للمقارنة
   const prevRange = useMemo(() => {
@@ -75,7 +86,6 @@ export default function ManagementDashboard() {
   }, [from, to])
 
   async function loadAll() {
-    setLoading(true)
     const [l, mv] = await Promise.all([
       supabase.from('laptops').select('*'),
       supabase
@@ -86,7 +96,6 @@ export default function ManagementDashboard() {
     ])
     setLaptops(l.data ?? [])
     setMovements(mv.data ?? [])
-    setLoading(false)
   }
 
   // إدخالات الفترة الحالية + السابقة (مرّة واحدة)
@@ -113,6 +122,32 @@ export default function ManagementDashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [from, to])
 
+  // ===== إحصائيات اللابات على الفترة المختارة =====
+  const periodLaptops = useMemo(
+    () =>
+      laptops.filter((l) => {
+        const d = (l.created_at ?? '').slice(0, 10)
+        return d >= from && d <= to
+      }),
+    [laptops, from, to]
+  )
+
+  const periodCounts = useMemo(() => {
+    const m = {}
+    for (const l of periodLaptops) m[l.current_status] = (m[l.current_status] ?? 0) + 1
+    return m
+  }, [periodLaptops])
+
+  // اللابات اللي اتصدرت فعليًا خلال الفترة (حسب تاريخ الإصدار)
+  const releasedInPeriod = useMemo(
+    () =>
+      laptops.filter((l) => {
+        const d = (l.released_at ?? '').slice(0, 10)
+        return Boolean(d) && d >= from && d <= to
+      }).length,
+    [laptops, from, to]
+  )
+
   const aggregate = useMemo(() => {
     const build = (list) => {
       const byDay = new Map()
@@ -132,9 +167,10 @@ export default function ManagementDashboard() {
         byDay.set(e.entry_date, d)
 
         const name = e.profiles?.full_name ?? 'غير معروف'
-        const w = byWorker.get(name) ?? { name, qty: 0, entries: 0 }
+        const w = byWorker.get(name) ?? { name, qty: 0, entries: 0, laptops: new Set() }
         w.qty += u
         w.entries += 1
+        if (e.laptop_id) w.laptops.add(e.laptop_id)
         byWorker.set(name, w)
       }
       return {
@@ -142,7 +178,9 @@ export default function ManagementDashboard() {
         laps: laptopsSet.size,
         status,
         daily: Array.from(byDay.values()).sort((a, b) => a.date.localeCompare(b.date)),
-        workers: Array.from(byWorker.values()).sort((a, b) => b.qty - a.qty),
+        workers: Array.from(byWorker.values())
+          .map((w) => ({ name: w.name, qty: w.qty, entries: w.entries, laps: w.laptops.size }))
+          .sort((a, b) => b.qty - a.qty),
         total: list.length,
       }
     }
@@ -166,11 +204,13 @@ export default function ManagementDashboard() {
       title: 'تقرير الإدارة — الإنتاجية',
       meta: [
         [`الفترة: ${from} ← ${to}`],
+        [`إجمالي اللابات: ${formatNumber(cur.laps)}`],
         [`إجمالي العدد: ${formatNumber(cur.qty)}`],
         [`معدّل الرفض: ${formatNumber(rejectionRate)}%`],
       ],
       headers: ['#', 'الموظف', 'عدد اللابات', 'إجمالي العدد'],
-      rows: cur.workers.map((r, i) => [i + 1, r.name, '', r.qty]),
+      rows: cur.workers.map((r, i) => [i + 1, r.name, r.laps, r.qty]),
+      footer: ['', 'الإجمالي', cur.laps, cur.qty],
     })
   }
 
@@ -179,8 +219,31 @@ export default function ManagementDashboard() {
       title: 'تقرير الإدارة — الإنتاجية',
       period: { start: from, end: to },
       totals: { laps: cur.laps },
-      rows: cur.workers.map((r) => ({ name: r.name, laps: r.entries })),
+      rows: cur.workers.map((r) => ({ name: r.name, laps: r.laps })),
     })
+  }
+
+  async function runAI() {
+    setAiBusy(true)
+    setAiError('')
+    setAi(null)
+    try {
+      const { data, error } = await supabase.functions.invoke('ai-analysis', {
+        body: {
+          period: { start: from, end: to },
+          totals: { laps: cur.laps, units: cur.qty },
+          workers: cur.workers.map((w) => ({ name: w.name, laps: w.laps, units: w.qty })),
+          entries: [],
+        },
+      })
+      if (error) throw new Error(await edgeErrorMessage(error))
+      if (data?.error) throw new Error(data.error)
+      setAi(data)
+    } catch (err) {
+      setAiError(err.message || 'تعذّر تشغيل التحليل. تأكد من نشر دالة ai-analysis.')
+    } finally {
+      setAiBusy(false)
+    }
   }
 
   return (
@@ -190,7 +253,7 @@ export default function ManagementDashboard() {
         <span className="badge bg-slate-100 text-slate-600">قراءة فقط</span>
       </div>
 
-      {/* فلتر الفترة */}
+      {/* فلتر الفترة + الإجراءات */}
       <div className="mb-4 card flex flex-wrap items-end gap-3">
         <div>
           <label className="label">من</label>
@@ -210,30 +273,22 @@ export default function ManagementDashboard() {
         <button onClick={exportPDF} disabled={cur.workers.length === 0} className="btn-accent">
           تصدير PDF
         </button>
+        <button onClick={runAI} disabled={aiBusy || cur.workers.length === 0} className="btn-primary">
+          {aiBusy ? 'جاري التحليل…' : 'تقرير AI'}
+        </button>
       </div>
 
-      {/* نظرة عامة */}
+      {/* نظرة عامة على اللابات في الفترة */}
       <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <Stat label="إجمالي اللابات" value={laptops.length} />
-        <Stat label="تم الإصدار" value={monthCounts.released ?? 0} tone="emerald" />
-        <Stat label="تحت التنفيذ" value={monthCounts.in_progress ?? 0} tone="amber" />
-        <Stat label="بانتظار الإصدار" value={monthCounts.awaiting_release ?? 0} tone="violet" />
-      </div>
-
-      <div className="mb-4 card">
-        <h2 className="mb-3 font-bold">توزيع حالات اللابات</h2>
-        <div className="flex flex-wrap gap-2">
-          {STATUS_ORDER.map((s) => (
-            <span key={s} className="flex items-center gap-1">
-              <StatusBadge status={s} />
-              <span className="text-sm font-semibold text-slate-600">{monthCounts[s] ?? 0}</span>
-            </span>
-          ))}
-        </div>
+        <Stat label="لابات الفترة" value={periodLaptops.length} />
+        <Stat label="اتصدرت في الفترة" value={releasedInPeriod} tone="emerald" />
+        <Stat label="تحت التنفيذ" value={periodCounts.in_progress ?? 0} tone="amber" />
+        <Stat label="بانتظار الإصدار" value={periodCounts.awaiting_release ?? 0} tone="violet" />
       </div>
 
       {/* المؤشرات المتقدمة */}
       <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <Stat label="إجمالي اللابات" value={formatNumber(cur.laps)} />
         <Stat label="إجمالي العدد" value={formatNumber(cur.qty)} />
         <Stat
           label="التغيّر عن الفترة السابقة"
@@ -241,7 +296,31 @@ export default function ManagementDashboard() {
           tone={unitsDelta === null ? undefined : unitsDelta >= 0 ? 'emerald' : 'red'}
         />
         <Stat label="معدّل الرفض" value={`${formatNumber(rejectionRate)}%`} tone={rejectionRate > 15 ? 'red' : 'emerald'} />
-        <Stat label="عدد الإدخالات" value={formatNumber(cur.total)} />
+      </div>
+
+      {/* تحليل الذكاء الاصطناعي */}
+      {(ai || aiError) && (
+        <div className={`card mb-4 ${aiError ? 'border-red-200 bg-red-50' : ''}`}>
+          <h2 className="mb-2 font-bold text-lg">تحليل الذكاء الاصطناعي</h2>
+          {aiError ? (
+            <p className="text-sm text-red-700">{aiError}</p>
+          ) : (
+            <div className="text-sm leading-7 whitespace-pre-wrap text-slate-700">{ai.summary}</div>
+          )}
+        </div>
+      )}
+
+      {/* توزيع حالات اللابات في الفترة */}
+      <div className="mb-4 card">
+        <h2 className="mb-3 font-bold">توزيع حالات لابات الفترة</h2>
+        <div className="flex flex-wrap gap-2">
+          {STATUS_ORDER.map((s) => (
+            <span key={s} className="flex items-center gap-1">
+              <StatusBadge status={s} />
+              <span className="text-sm font-semibold text-slate-600">{periodCounts[s] ?? 0}</span>
+            </span>
+          ))}
+        </div>
       </div>
 
       {/* اتجاه يومي + ترتيب العمال */}
@@ -299,8 +378,8 @@ export default function ManagementDashboard() {
               </tr>
             </thead>
             <tbody>
-              <CompareRow label="إجمالي العدد" current={cur.qty} previous={pc.qty} />
               <CompareRow label="عدد اللابات" current={cur.laps} previous={pc.laps} />
+              <CompareRow label="إجمالي العدد" current={cur.qty} previous={pc.qty} />
               <CompareRow label="عدد الإدخالات" current={cur.total} previous={pc.total} />
               <tr>
                 <td data-label="المؤشر">حالات الإدخال</td>
