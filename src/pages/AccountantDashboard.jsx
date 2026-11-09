@@ -17,6 +17,20 @@ import { formatDate, formatNumber, startOfMonth, startOfWeek, toISODate, entryLi
 import { printReport } from '../lib/report'
 import { exportXlsx } from '../lib/xlsx'
 
+// استخراج رسالة الخطأ الحقيقية من دالة Edge لما ترجع حالة غير 2xx
+async function edgeErrorMessage(error) {
+  try {
+    const res = error?.context
+    if (res && typeof res.clone === 'function') {
+      const body = await res.clone().json()
+      if (body?.error) return body.error
+    }
+  } catch {
+    /* نتجاهل ونجرّب الرسالة الافتراضية */
+  }
+  return error?.message || 'تعذّر تشغيل التحليل.'
+}
+
 export default function AccountantDashboard() {
   const [period, setPeriod] = useState('month')
   const [customStart, setCustomStart] = useState(toISODate(startOfMonth()))
@@ -286,7 +300,7 @@ export default function AccountantDashboard() {
           })),
         },
       })
-      if (error) throw error
+      if (error) throw new Error(await edgeErrorMessage(error))
       if (data?.error) throw new Error(data.error)
       setAi(data)
     } catch (err) {
