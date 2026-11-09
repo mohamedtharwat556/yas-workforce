@@ -6,8 +6,8 @@ import NotificationBell from './NotificationBell'
 const NAV = {
   worker: [
     { to: '/worker', label: 'إنتاجي اليوم', short: 'إنتاجي' },
-    { to: '/laptops', label: 'مسار اللاب', short: 'لابات' },
     { to: '/worker/incentives', label: 'تفاصيل إنتاجي', short: 'تفاصيلي' },
+    { to: '/worker/archive', label: 'أرشيف إنتاجي', short: 'أرشيف' },
   ],
   supervisor: [
     { to: '/supervisor', label: 'لوحة المشرف', short: 'المشرف' },
@@ -34,6 +34,13 @@ const ICONS = {
       <path d="M17 6H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
     </>
   ),
+  '/worker/archive': (
+    <>
+      <rect x="3" y="4" width="18" height="4" rx="1" />
+      <path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8" />
+      <path d="M10 12h4" />
+    </>
+  ),
   '/supervisor': (
     <>
       <path d="M12 3l7 4v5c0 4-3 7-7 9-4-2-7-5-7-9V7z" />
@@ -45,12 +52,6 @@ const ICONS = {
     <>
       <circle cx="12" cy="8" r="4" />
       <path d="M4 21c0-4 4-6 8-6s8 2 8 6" />
-    </>
-  ),
-  '/laptops': (
-    <>
-      <rect x="3" y="5" width="18" height="12" rx="2" />
-      <path d="M2 20h20" />
     </>
   ),
   '/management': (

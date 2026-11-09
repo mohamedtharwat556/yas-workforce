@@ -26,8 +26,9 @@ function targetFor(type, role) {
     case 'laptop_awaiting_release':
       return '/accountant'
     case 'laptop_released':
+      return role === 'worker' ? '/worker/incentives' : '/supervisor'
     case 'laptop_returned':
-      return '/laptops'
+      return '/supervisor'
     case 'month_closed':
       return role === 'worker' ? '/worker/incentives' : '/accountant'
     default:

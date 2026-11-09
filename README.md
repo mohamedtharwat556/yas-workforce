@@ -96,22 +96,19 @@ src/
   lib/dates.js               حسابات التواريخ + الوحدات المرجّحة
   lib/xlsx.js                تصدير Excel
   lib/report.js              تقارير PDF/طباعة
-  lib/labels.js              ملصقات QR/باركود
   context/AuthContext.jsx    المصادقة والحالة (+ تغيير كلمة المرور)
-  components/                Layout / ProtectedRoute / NotificationBell / QRScannerModal
+  components/                Layout / ProtectedRoute / NotificationBell
   pages/
     Login.jsx                دخول
     Pending.jsx              انتظار موافقة المشرف
     ChangePassword.jsx       تغيير كلمة المرور
     WorkerDashboard.jsx      إدخال إنتاجي اليومي + ملاحظات + صور + سيريال يدوي
     WorkerIncentives.jsx     حوافز العامل
+    WorkerArchive.jsx        أرشيف إنتاج العامل (خاص بالموظف)
     SupervisorDashboard.jsx  الموافقات + الإصدار + الأوزان
     AccountantDashboard.jsx  التقارير + الحافز + AI
     IncentiveLocks.jsx       اعتماد/إغلاق فترات الحوافز + التسويات
     EmployeeAccounts.jsx     إنشاء وإدارة الحسابات
-    LaptopJourney.jsx        مسار اللاب (Timeline)
-    LaptopQR.jsx             طباعة ملصقات A4
-    ScanLanding.jsx          صفحة الوصول عبر QR
     ManagementDashboard.jsx  لوحة الإدارة + التحليلات المتقدمة
     AuditLog.jsx             سجل الأوديت
 supabase/

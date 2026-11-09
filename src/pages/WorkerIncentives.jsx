@@ -69,6 +69,9 @@ export default function WorkerIncentives() {
     [byOperation]
   )
 
+  // القائمة بتخفي الإدخالات اللي الموظف نقلها لأرشيفه (الإجماليات بتفضل محسوبة عليهم)
+  const visibleEntries = useMemo(() => entries.filter((e) => !e.worker_archived_at), [entries])
+
   function exportExcel() {
     exportXlsx({
       filename: `yas-my-production_${toISODate(new Date())}.xlsx`,
@@ -177,12 +180,12 @@ export default function WorkerIncentives() {
                     <td colSpan={4} className="text-center text-slate-400 py-6">جاري التحميل…</td>
                   </tr>
                 )}
-                {!loading && entries.length === 0 && (
+                {!loading && visibleEntries.length === 0 && (
                   <tr>
                     <td colSpan={4} className="text-center text-slate-400 py-6">مفيش إدخالات معتمدة لسه</td>
                   </tr>
                 )}
-                {entries.slice(0, 30).map((e) => (
+                {visibleEntries.slice(0, 30).map((e) => (
                   <tr key={e.id}>
                     <td data-label="التاريخ">{formatDate(e.entry_date)}</td>
                     <td data-label="العملية">{entryOperationNames(e)}</td>

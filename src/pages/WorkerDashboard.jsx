@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import Layout from '../components/Layout'
 import StatusBadge from '../components/StatusBadge'
 import EntryDetails from '../components/EntryDetails'
@@ -37,6 +38,7 @@ export default function WorkerDashboard() {
   const [msg, setMsg] = useState(null)
   const [detailId, setDetailId] = useState(null)
   const [editingId, setEditingId] = useState(null)
+  const [busyId, setBusyId] = useState(null)
 
   async function loadOperations() {
     const { data } = await supabase
@@ -95,6 +97,9 @@ export default function WorkerDashboard() {
       month: bucket(monthStart, 'range'),
     }
   }, [released])
+
+  // الإدخالات الظاهرة في القائمة الرئيسية (من غير اللي الموظف نقلها لأرشيفه)
+  const visibleEntries = useMemo(() => entries.filter((e) => !e.worker_archived_at), [entries])
 
   function update(field, value) {
     setForm((f) => ({ ...f, [field]: value }))
@@ -322,6 +327,20 @@ export default function WorkerDashboard() {
     loadEntries()
   }
 
+  // نقل إدخال معتمد لأرشيف الموظف (يخفّف زحمة الصفحة — الإدخال بيفضل موجود عند المشرف)
+  async function archiveEntry(entry) {
+    setMsg(null)
+    setBusyId(entry.id)
+    const { error } = await supabase.rpc('fn_worker_archive_entry', { p_entry_id: entry.id })
+    setBusyId(null)
+    if (error) {
+      setMsg({ type: 'error', text: error.message })
+      return
+    }
+    setMsg({ type: 'ok', text: 'تم نقل الإدخال لأرشيفك.' })
+    loadEntries()
+  }
+
   return (
     <Layout title="إنتاجي اليوم">
       <div className="grid gap-4 md:grid-cols-3 mb-6">
@@ -441,7 +460,12 @@ export default function WorkerDashboard() {
         </form>
 
         <div className="card lg:col-span-3 order-2 lg:order-none">
-          <h2 className="font-bold text-lg mb-3">آخر إدخالاتي</h2>
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <h2 className="font-bold text-lg">آخر إدخالاتي</h2>
+            <Link to="/worker/archive" className="btn-ghost !py-1 !px-3 text-xs">
+              أرشيف إنتاجي
+            </Link>
+          </div>
           <div className="table-wrap">
             <table className="table table-cards">
               <thead>
@@ -455,14 +479,14 @@ export default function WorkerDashboard() {
                 </tr>
               </thead>
               <tbody>
-                {entries.length === 0 && (
+                {visibleEntries.length === 0 && (
                   <tr>
                     <td colSpan={6} className="text-center text-slate-400 py-6">
                       مفيش إدخالات لسه
                     </td>
                   </tr>
                 )}
-                {entries.map((e) => (
+                {visibleEntries.map((e) => (
                   <tr key={e.id} className="cursor-pointer hover:bg-slate-50" onClick={() => setDetailId(e.id)}>
                     <td data-label="التاريخ">{formatDate(e.entry_date)}</td>
                     <td data-label="العملية">{entryOperationNames(e)}</td>
@@ -491,6 +515,15 @@ export default function WorkerDashboard() {
                         {(e.status === 'draft' || e.status === 'returned') && (
                           <button onClick={() => removeEntry(e)} className="btn-danger !py-1 !px-2 text-xs">
                             حذف
+                          </button>
+                        )}
+                        {(e.status === 'approved' || e.status === 'released') && (
+                          <button
+                            onClick={() => archiveEntry(e)}
+                            disabled={busyId === e.id}
+                            className="btn-ghost !py-1 !px-2 text-xs"
+                          >
+                            {busyId === e.id ? '…' : 'أرشفة'}
                           </button>
                         )}
                       </div>

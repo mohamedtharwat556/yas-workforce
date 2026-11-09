@@ -9,14 +9,12 @@ import WorkerDashboard from './pages/WorkerDashboard'
 
 // تحميل مؤجّل للصفحات التقيلة (رسوم/مشرف/حسابات) عشان الموبايل يحمّل اللي محتاجه بس
 const WorkerIncentives = lazy(() => import('./pages/WorkerIncentives'))
+const WorkerArchive = lazy(() => import('./pages/WorkerArchive'))
 const SupervisorDashboard = lazy(() => import('./pages/SupervisorDashboard'))
 const AccountantDashboard = lazy(() => import('./pages/AccountantDashboard'))
 const EmployeeAccounts = lazy(() => import('./pages/EmployeeAccounts'))
-const LaptopJourney = lazy(() => import('./pages/LaptopJourney'))
 const ManagementDashboard = lazy(() => import('./pages/ManagementDashboard'))
 const AuditLog = lazy(() => import('./pages/AuditLog'))
-const LaptopQR = lazy(() => import('./pages/LaptopQR'))
-const ScanLanding = lazy(() => import('./pages/ScanLanding'))
 const ChangePassword = lazy(() => import('./pages/ChangePassword'))
 
 // يوجّه المستخدم للشاشة الصح حسب الدور
@@ -68,6 +66,14 @@ export default function App() {
           }
         />
         <Route
+          path="/worker/archive"
+          element={
+            <ProtectedRoute roles={['worker']}>
+              <WorkerArchive />
+            </ProtectedRoute>
+          }
+        />
+        <Route
           path="/supervisor"
           element={
             <ProtectedRoute roles={['supervisor', 'accountant']}>
@@ -92,14 +98,6 @@ export default function App() {
           }
         />
         <Route
-          path="/laptops"
-          element={
-            <ProtectedRoute roles={['worker', 'supervisor', 'accountant']}>
-              <LaptopJourney />
-            </ProtectedRoute>
-          }
-        />
-        <Route
           path="/management"
           element={
             <ProtectedRoute roles={['accountant']}>
@@ -112,22 +110,6 @@ export default function App() {
           element={
             <ProtectedRoute roles={['supervisor', 'accountant']}>
               <AuditLog />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/laptops/labels"
-          element={
-            <ProtectedRoute roles={['worker', 'supervisor', 'accountant']}>
-              <LaptopQR />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/l/:token"
-          element={
-            <ProtectedRoute roles={['worker', 'supervisor', 'accountant']}>
-              <ScanLanding />
             </ProtectedRoute>
           }
         />
