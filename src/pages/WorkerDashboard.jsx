@@ -101,11 +101,19 @@ export default function WorkerDashboard() {
     }))
   }
 
-  // إجمالي عدد اللابات في الإدخال — بنفتح على أساسه خانات السيريال
-  const totalQty = useMemo(
-    () => form.lines.reduce((s, l) => s + (Number(l.quantity) || 0), 0),
-    [form.lines]
-  )
+  // نجمّع خانات السيريال حسب نوع العملية: كل عملية يظهر اسمها وتحتها خانات بعددها
+  const serialGroups = useMemo(() => {
+    let offset = 0
+    return form.lines
+      .filter((l) => l.operation_id && Number(l.quantity) > 0)
+      .map((l) => {
+        const op = operations.find((o) => String(o.id) === String(l.operation_id))
+        const qty = Number(l.quantity) || 0
+        const start = offset
+        offset += qty
+        return { key: String(l.operation_id), name: op?.name_ar ?? 'عملية', qty, start }
+      })
+  }, [form.lines, operations])
 
   function setSerial(idx, value) {
     setForm((f) => {
@@ -306,22 +314,29 @@ export default function WorkerDashboard() {
             <input type="date" required className="input" value={form.entry_date} onChange={(e) => update('entry_date', e.target.value)} />
           </div>
 
-          {totalQty > 0 && (
+          {serialGroups.length > 0 && (
             <div>
               <label className="label">السيريالات (اختياري)</label>
-              <div className="space-y-2">
-                {Array.from({ length: totalQty }).map((_, i) => (
-                  <input
-                    key={i}
-                    className="input font-mono text-sm"
-                    dir="ltr"
-                    placeholder={`سيريال ${i + 1}`}
-                    value={form.serials[i] ?? ''}
-                    onChange={(e) => setSerial(i, e.target.value)}
-                  />
+              <div className="space-y-4">
+                {serialGroups.map((g) => (
+                  <div key={g.key}>
+                    <p className="mb-1 text-sm font-medium">{g.name}</p>
+                    <div className="space-y-2">
+                      {Array.from({ length: g.qty }).map((_, i) => (
+                        <input
+                          key={i}
+                          className="input font-mono text-sm"
+                          dir="ltr"
+                          placeholder={`سيريال ${i + 1}`}
+                          value={form.serials[g.start + i] ?? ''}
+                          onChange={(e) => setSerial(g.start + i, e.target.value)}
+                        />
+                      ))}
+                    </div>
+                  </div>
                 ))}
               </div>
-              <p className="mt-1 text-xs text-slate-400">عدد الخانات = إجمالي عدد اللابات اللي كتبته فوق.</p>
+              <p className="mt-1 text-xs text-slate-400">تحت كل عملية خانات بعدد اللابات اللي كتبته لها.</p>
             </div>
           )}
 
