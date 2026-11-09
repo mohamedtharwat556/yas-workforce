@@ -53,7 +53,6 @@ function pct(current, previous) {
 export default function ManagementDashboard() {
   const [laptops, setLaptops] = useState([])
   const [movements, setMovements] = useState([])
-  const [rows, setRows] = useState([])
   const [entries, setEntries] = useState([])
   const [loading, setLoading] = useState(true)
   const [loadingAnalytics, setLoadingAnalytics] = useState(true)
@@ -90,14 +89,6 @@ export default function ManagementDashboard() {
     setLoading(false)
   }
 
-  async function loadIncentive() {
-    const { data, error } = await supabase.rpc('fn_calculate_incentive', {
-      p_start: from,
-      p_end: to,
-    })
-    if (!error) setRows(data ?? [])
-  }
-
   // إدخالات الفترة الحالية + السابقة (مرّة واحدة)
   async function loadAnalytics() {
     setLoadingAnalytics(true)
@@ -116,11 +107,6 @@ export default function ManagementDashboard() {
   useEffect(() => {
     loadAll()
   }, [])
-
-  useEffect(() => {
-    loadIncentive()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [from, to])
 
   useEffect(() => {
     loadAnalytics()
@@ -169,7 +155,6 @@ export default function ManagementDashboard() {
   const cur = aggregate.current
   const pc = aggregate.previous
 
-  const totalUnits = rows.reduce((s, r) => s + Number(r.incentive || 0), 0)
   const rejected = cur.status.returned ?? 0
   const rejectionRate = cur.total ? (rejected / cur.total) * 100 : 0
   const unitsDelta = pct(cur.units, pc.units)
@@ -178,24 +163,23 @@ export default function ManagementDashboard() {
     exportXlsx({
       filename: `yas-management_${from}_${to}.xlsx`,
       sheetName: 'الإدارة',
-      title: 'تقرير الإدارة — الإنتاجية والحوافز',
+      title: 'تقرير الإدارة — الإنتاجية',
       meta: [
         [`الفترة: ${from} ← ${to}`],
         [`الوحدات المرجّحة: ${formatNumber(cur.units)}`],
         [`معدّل الرفض: ${formatNumber(rejectionRate)}%`],
       ],
-      headers: ['#', 'الموظف', 'عدد اللابات', 'الوحدات المرجّحة', 'الحافز'],
-      rows: rows.map((r, i) => [i + 1, r.worker_name, r.laptops, r.units, r.incentive]),
-      footer: ['', 'الإجمالي', '', '', totalUnits],
+      headers: ['#', 'الموظف', 'عدد اللابات', 'الوحدات المرجّحة'],
+      rows: cur.workers.map((r, i) => [i + 1, r.name, '', r.units]),
     })
   }
 
   function exportPDF() {
     printReport({
-      title: 'تقرير الإدارة — الإنتاجية والحوافز',
+      title: 'تقرير الإدارة — الإنتاجية',
       period: { start: from, end: to },
-      totals: { laps: rows.reduce((s, r) => s + Number(r.laptops || 0), 0), units: cur.units, incentive: totalUnits },
-      rows: rows.map((r) => ({ name: r.worker_name, laps: r.laptops, units: r.units, incentive: r.incentive })),
+      totals: { laps: cur.laps, units: cur.units },
+      rows: cur.workers.map((r) => ({ name: r.name, laps: r.entries, units: r.units })),
     })
   }
 
@@ -220,10 +204,10 @@ export default function ManagementDashboard() {
           الفترة السابقة للمقارنة: {prevRange.start} ← {prevRange.end}
         </div>
         <div className="flex-1" />
-        <button onClick={exportExcel} disabled={rows.length === 0} className="btn-ghost">
+        <button onClick={exportExcel} disabled={cur.workers.length === 0} className="btn-ghost">
           تصدير Excel
         </button>
-        <button onClick={exportPDF} disabled={rows.length === 0} className="btn-accent">
+        <button onClick={exportPDF} disabled={cur.workers.length === 0} className="btn-accent">
           تصدير PDF
         </button>
       </div>
@@ -331,41 +315,6 @@ export default function ManagementDashboard() {
             </tbody>
           </table>
         </div>
-      </div>
-
-      {/* الحوافز (حساب server-side) */}
-      <div className="mb-4 card">
-        <h2 className="mb-3 font-bold">الحوافز المحسوبة (قراءة فقط)</h2>
-        <div className="table-wrap">
-          <table className="table table-cards">
-            <thead>
-              <tr>
-                <th>الموظف</th>
-                <th>لابات</th>
-                <th>وحدات مرجّحة</th>
-                <th>الحافز</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.length === 0 && (
-                <tr>
-                  <td colSpan={4} className="py-6 text-center text-slate-400">
-                    {loading ? 'جاري التحميل…' : 'مفيش بيانات في الفترة دي'}
-                  </td>
-                </tr>
-              )}
-              {rows.map((r) => (
-                <tr key={r.worker_id}>
-                  <td data-label="الموظف">{r.worker_name}</td>
-                  <td data-label="لابات">{r.laptops}</td>
-                  <td data-label="وحدات مرجّحة">{formatNumber(r.units)}</td>
-                  <td data-label="الحافز">{formatNumber(r.incentive)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        <p className="mt-3 text-sm font-semibold">الإجمالي: {formatNumber(totalUnits)}</p>
       </div>
 
       {/* آخر الحركات */}

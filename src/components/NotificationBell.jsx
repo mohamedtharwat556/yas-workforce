@@ -29,7 +29,7 @@ function targetFor(type, role) {
     case 'laptop_returned':
       return '/laptops'
     case 'month_closed':
-      return role === 'worker' ? '/worker/incentives' : '/accountant/locks'
+      return role === 'worker' ? '/worker/incentives' : '/accountant'
     default:
       return null
   }

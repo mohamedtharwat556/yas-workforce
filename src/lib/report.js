@@ -17,11 +17,10 @@ function fmtDate(value) {
 export function printReport({
   title,
   period,
-  currency = 'EGP',
   totals,
   rows = [],
   byOperation = [],
-  rowsTitle = 'الإنتاجية والحافز لكل عامل',
+  rowsTitle = 'الإنتاجية لكل عامل',
   rowsLabel = 'العامل',
 }) {
   const win = window.open('', '_blank', 'width=1000,height=760')
@@ -35,7 +34,7 @@ export function printReport({
       (r, i) =>
         `<tr><td>${i + 1}</td><td class="name">${esc(r.name)}</td><td>${fmt(r.laps)}</td><td>${fmt(
           r.units
-        )}</td><td class="money">${fmt(r.incentive)}</td></tr>`
+        )}</td></tr>`
     )
     .join('')
 
@@ -66,7 +65,6 @@ export function printReport({
   th { background: #1d4ed8; color: #fff; font-weight: 600; }
   tr { page-break-inside: avoid; }
   tbody tr:nth-child(even) { background: #f8fafc; }
-  .money { font-weight: 700; }
   .total-row td { background: #e2e8f0; font-weight: 800; }
   .foot { margin-top: 26px; font-size: 11px; color: #94a3b8; text-align: center; }
   @page { size: A4; margin: 14mm; }
@@ -74,7 +72,7 @@ export function printReport({
 </head>
 <body>
   <div class="head">
-    <div class="brand">YAS Workforce<small>نظام الإنتاجية والحوافز</small></div>
+    <div class="brand">YAS Workforce<small>نظام الإنتاجية</small></div>
     <div class="meta">
       الفترة: ${esc(period?.start ?? '-')} ← ${esc(period?.end ?? '-')}<br />
       تاريخ الإصدار: ${esc(new Date().toLocaleString('ar-EG'))}
@@ -86,21 +84,20 @@ export function printReport({
   <div class="cards">
     <div class="card"><div class="lbl">إجمالي اللابات</div><div class="val">${fmt(totals?.laps)}</div></div>
     <div class="card"><div class="lbl">الوحدات المرجّحة</div><div class="val">${fmt(totals?.units)}</div></div>
-    <div class="card"><div class="lbl">إجمالي الحافز (${esc(currency)})</div><div class="val">${fmt(totals?.incentive)}</div></div>
   </div>
 
   <h2>${esc(rowsTitle)}</h2>
   <table>
     <thead>
-      <tr><th>#</th><th>${esc(rowsLabel)}</th><th>عدد اللابات</th><th>الوحدات المرجّحة</th><th>الحافز (${esc(currency)})</th></tr>
+      <tr><th>#</th><th>${esc(rowsLabel)}</th><th>عدد اللابات</th><th>الوحدات المرجّحة</th></tr>
     </thead>
     <tbody>
-      ${workerRows || '<tr><td colspan="5" style="text-align:center;color:#94a3b8">لا توجد بيانات في الفترة</td></tr>'}
+      ${workerRows || '<tr><td colspan="4" style="text-align:center;color:#94a3b8">لا توجد بيانات في الفترة</td></tr>'}
       ${
         rows.length
           ? `<tr class="total-row"><td colspan="2">الإجمالي</td><td>${fmt(totals?.laps)}</td><td>${fmt(
               totals?.units
-            )}</td><td>${fmt(totals?.incentive)}</td></tr>`
+            )}</td></tr>`
           : ''
       }
     </tbody>

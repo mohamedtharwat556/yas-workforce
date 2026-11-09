@@ -11,7 +11,6 @@ import WorkerDashboard from './pages/WorkerDashboard'
 const WorkerIncentives = lazy(() => import('./pages/WorkerIncentives'))
 const SupervisorDashboard = lazy(() => import('./pages/SupervisorDashboard'))
 const AccountantDashboard = lazy(() => import('./pages/AccountantDashboard'))
-const IncentiveLocks = lazy(() => import('./pages/IncentiveLocks'))
 const EmployeeAccounts = lazy(() => import('./pages/EmployeeAccounts'))
 const LaptopJourney = lazy(() => import('./pages/LaptopJourney'))
 const ManagementDashboard = lazy(() => import('./pages/ManagementDashboard'))
@@ -82,14 +81,6 @@ export default function App() {
           element={
             <ProtectedRoute roles={['accountant', 'management']}>
               <AccountantDashboard />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/accountant/locks"
-          element={
-            <ProtectedRoute roles={['accountant', 'management']}>
-              <IncentiveLocks />
             </ProtectedRoute>
           }
         />

@@ -7,7 +7,7 @@ const NAV = {
   worker: [
     { to: '/worker', label: 'إنتاجي اليوم', short: 'إنتاجي' },
     { to: '/laptops', label: 'مسار اللاب', short: 'لابات' },
-    { to: '/worker/incentives', label: 'حوافزي', short: 'حوافزي' },
+    { to: '/worker/incentives', label: 'تفاصيل إنتاجي', short: 'تفاصيلي' },
   ],
   supervisor: [
     { to: '/supervisor', label: 'لوحة المشرف', short: 'المشرف' },
@@ -17,7 +17,6 @@ const NAV = {
   accountant: [
     { to: '/accountant', label: 'التقارير', short: 'تقارير' },
     { to: '/supervisor', label: 'لوحة المشرف', short: 'المشرف' },
-    { to: '/accountant/locks', label: 'اعتماد الحوافز', short: 'اعتماد' },
     { to: '/supervisor/accounts', label: 'إدارة الحسابات', short: 'حسابات' },
     { to: '/audit', label: 'سجل الأوديت', short: 'أوديت' },
   ],
@@ -46,12 +45,6 @@ const ICONS = {
     </>
   ),
   '/accountant': <path d="M4 20V10M10 20V4M16 20v-7M21 20H3" />,
-  '/accountant/locks': (
-    <>
-      <path d="M6 10V7a6 6 0 1 1 12 0v3" />
-      <rect x="5" y="10" width="14" height="11" rx="2" />
-    </>
-  ),
   '/supervisor/accounts': (
     <>
       <circle cx="12" cy="8" r="4" />

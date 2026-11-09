@@ -8,22 +8,19 @@ import { formatDate, formatNumber, toISODate, entryOperationNames, entryTotalQty
 import { exportXlsx } from '../lib/xlsx'
 
 const TABS = [
-  { key: 'approvals', label: 'طلبات التسجيل' },
   { key: 'release', label: 'إدخالات للمراجعة' },
   { key: 'users', label: 'المستخدمون' },
-  { key: 'settings', label: 'الأوزان والحافز' },
+  { key: 'settings', label: 'أوزان العمليات' },
 ]
 
 export default function SupervisorDashboard() {
   const { user, profile } = useAuth()
   // الأدمن (الحسابات) بس اللي يقدر يمنح أدوار الحسابات/الإدارة
   const canGrantAdmin = profile?.role === 'accountant'
-  const [tab, setTab] = useState('approvals')
-  const [pending, setPending] = useState([])
+  const [tab, setTab] = useState('release')
   const [entries, setEntries] = useState([])
   const [operations, setOperations] = useState([])
   const [users, setUsers] = useState([])
-  const [rule, setRule] = useState(null)
   const [busyId, setBusyId] = useState(null)
   const [msg, setMsg] = useState(null)
   const [detailId, setDetailId] = useState(null)
@@ -31,41 +28,23 @@ export default function SupervisorDashboard() {
   const [reason, setReason] = useState('')
 
   async function loadAll() {
-    const [p, e, o, r, u] = await Promise.all([
-      supabase.from('profiles').select('*').eq('status', 'pending').order('created_at'),
+    const [e, o, u] = await Promise.all([
       supabase
         .from('production_entries')
         .select('*, profiles!production_entries_worker_id_fkey(full_name), operations(name_ar), entry_operations(operation_id, quantity, operations(name_ar, weight))')
         .in('status', ['draft', 'submitted'])
         .order('created_at', { ascending: false }),
       supabase.from('operations').select('*').order('sort_order'),
-      supabase.from('incentive_rules').select('*').limit(1).maybeSingle(),
       supabase.from('profiles').select('*').order('created_at', { ascending: false }),
     ])
-    setPending(p.data ?? [])
     setEntries(e.data ?? [])
     setOperations(o.data ?? [])
-    setRule(r.data ?? null)
     setUsers(u.data ?? [])
   }
 
   useEffect(() => {
     loadAll()
   }, [])
-
-  async function approve(id) {
-    setBusyId(id)
-    await supabase.from('profiles').update({ status: 'active', supervisor_id: user.id }).eq('id', id)
-    setBusyId(null)
-    loadAll()
-  }
-
-  async function reject(id) {
-    setBusyId(id)
-    await supabase.from('profiles').update({ status: 'rejected' }).eq('id', id)
-    setBusyId(null)
-    loadAll()
-  }
 
   async function approveEntry(entry) {
     setBusyId(entry.id)
@@ -104,17 +83,6 @@ export default function SupervisorDashboard() {
     }
     setBusyId(null)
     setMsg({ type: 'ok', text: 'تم حفظ الأوزان.' })
-  }
-
-  async function saveRule() {
-    if (!rule) return
-    setBusyId('rule')
-    await supabase
-      .from('incentive_rules')
-      .update({ unit_rate: Number(rule.unit_rate), updated_at: new Date().toISOString() })
-      .eq('id', rule.id)
-    setBusyId(null)
-    setMsg({ type: 'ok', text: 'تم حفظ سعر الوحدة.' })
   }
 
   function setOpWeight(id, value) {
@@ -169,9 +137,6 @@ export default function SupervisorDashboard() {
             className={`${tab === t.key ? 'btn-primary' : 'btn-ghost'} shrink-0 whitespace-nowrap`}
           >
             {t.label}
-            {t.key === 'approvals' && pending.length > 0 && (
-              <span className="badge bg-white/20 text-inherit">{pending.length}</span>
-            )}
             {t.key === 'release' && entries.length > 0 && (
               <span className="badge bg-white/20 text-inherit">{entries.length}</span>
             )}
@@ -182,48 +147,6 @@ export default function SupervisorDashboard() {
       {msg && (
         <div className={`text-sm rounded-lg p-3 mb-4 ${msg.type === 'error' ? 'bg-red-50 text-red-700' : 'bg-emerald-50 text-emerald-700'}`}>
           {msg.text}
-        </div>
-      )}
-
-      {tab === 'approvals' && (
-        <div className="card">
-          <h2 className="font-bold text-lg mb-3">طلبات تسجيل الحسابات</h2>
-          <div className="table-wrap">
-            <table className="table table-cards">
-              <thead>
-                <tr>
-                  <th>الاسم</th>
-                  <th>الإيميل</th>
-                  <th>تاريخ الطلب</th>
-                  <th>إجراء</th>
-                </tr>
-              </thead>
-              <tbody>
-                {pending.length === 0 && (
-                  <tr>
-                    <td colSpan={4} className="text-center text-slate-400 py-6">
-                      مفيش طلبات جديدة
-                    </td>
-                  </tr>
-                )}
-                {pending.map((p) => (
-                  <tr key={p.id}>
-                    <td data-label="الاسم">{p.full_name}</td>
-                    <td data-label="الإيميل" dir="ltr" className="text-left">{p.email}</td>
-                    <td data-label="تاريخ الطلب">{formatDate(p.created_at)}</td>
-                    <td data-label="إجراء" className="space-x-2 space-x-reverse">
-                      <button disabled={busyId === p.id} onClick={() => approve(p.id)} className="btn-accent !py-1 !px-3 text-sm">
-                        موافقة
-                      </button>
-                      <button disabled={busyId === p.id} onClick={() => reject(p.id)} className="btn-danger !py-1 !px-3 text-sm">
-                        رفض
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
         </div>
       )}
 
@@ -377,57 +300,31 @@ export default function SupervisorDashboard() {
       )}
 
       {tab === 'settings' && (
-        <div className="grid gap-6 md:grid-cols-2">
-          <div className="card">
-            <h2 className="font-bold text-lg mb-3">أوزان العمليات (Weighted)</h2>
-            <div className="space-y-3">
-              {operations.map((o) => (
-                <div key={o.id} className="flex items-center gap-3">
-                  <span className="flex-1 text-sm">
-                    {o.name_ar} <span className="text-slate-400 font-mono">({o.name_en})</span>
-                  </span>
-                  <input
-                    type="number"
-                    step="0.5"
-                    min="0"
-                    className="input w-24"
-                    value={o.weight}
-                    onChange={(e) => setOpWeight(o.id, e.target.value)}
-                  />
-                </div>
-              ))}
-            </div>
-            <button onClick={saveWeights} disabled={busyId === 'weights'} className="btn-accent w-full mt-4">
-              حفظ الأوزان
-            </button>
-          </div>
-
-          <div className="card h-fit">
-            <h2 className="font-bold text-lg mb-3">قاعدة الحافز</h2>
-            <p className="text-xs text-slate-500 mb-3">
-              الحافز = (مجموع العدد × الوزن) × سعر الوحدة
-            </p>
-            {rule ? (
-              <div className="space-y-3">
-                <div>
-                  <label className="label">سعر الوحدة ({rule.currency})</label>
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.5"
-                    className="input"
-                    value={rule.unit_rate}
-                    onChange={(e) => setRule({ ...rule, unit_rate: e.target.value })}
-                  />
-                </div>
-                <button onClick={saveRule} disabled={busyId === 'rule'} className="btn-accent w-full">
-                  حفظ
-                </button>
+        <div className="card max-w-xl">
+          <h2 className="font-bold text-lg mb-3">أوزان العمليات (Weighted)</h2>
+          <p className="text-xs text-slate-500 mb-3">
+            الوحدات المرجّحة للعملية = عددها × وزنها. الأوزان دي بتستخدمها التقارير في حساب إنتاجية كل عامل.
+          </p>
+          <div className="space-y-3">
+            {operations.map((o) => (
+              <div key={o.id} className="flex items-center gap-3">
+                <span className="flex-1 text-sm">
+                  {o.name_ar} <span className="text-slate-400 font-mono">({o.name_en})</span>
+                </span>
+                <input
+                  type="number"
+                  step="0.5"
+                  min="0"
+                  className="input w-24"
+                  value={o.weight}
+                  onChange={(e) => setOpWeight(o.id, e.target.value)}
+                />
               </div>
-            ) : (
-              <p className="text-slate-400 text-sm">مفيش قاعدة معرّفة.</p>
-            )}
+            ))}
           </div>
+          <button onClick={saveWeights} disabled={busyId === 'weights'} className="btn-accent w-full mt-4">
+            حفظ الأوزان
+          </button>
         </div>
       )}
 

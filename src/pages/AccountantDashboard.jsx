@@ -13,7 +13,7 @@ import {
 import Layout from '../components/Layout'
 import EntryDetails from '../components/EntryDetails'
 import { supabase } from '../lib/supabase'
-import { formatDate, formatNumber, startOfMonth, startOfWeek, toISODate, entryLines, entryUnits } from '../lib/dates'
+import { formatDate, formatNumber, startOfMonth, startOfWeek, toISODate, entryLines, entryUnits, entryOperationNames, entryTotalQty } from '../lib/dates'
 import { printReport } from '../lib/report'
 import { exportXlsx } from '../lib/xlsx'
 
@@ -36,9 +36,9 @@ export default function AccountantDashboard() {
   const [customStart, setCustomStart] = useState(toISODate(startOfMonth()))
   const [customEnd, setCustomEnd] = useState(toISODate(new Date()))
   const [entries, setEntries] = useState([])
-  const [rule, setRule] = useState(null)
-  const [periodReport, setPeriodReport] = useState([])
-  const [periodRow, setPeriodRow] = useState(null)
+  const [archivedEntries, setArchivedEntries] = useState([])
+  const [showArchive, setShowArchive] = useState(false)
+  const [archiveBusy, setArchiveBusy] = useState(null)
   const [loading, setLoading] = useState(false)
   const [ai, setAi] = useState(null)
   const [aiBusy, setAiBusy] = useState(false)
@@ -106,29 +106,27 @@ export default function AccountantDashboard() {
 
   useEffect(() => {
     let active = true
+    const ENTRY_SELECT =
+      '*, profiles!production_entries_worker_id_fkey(full_name), operations(name_ar, weight), entry_operations(operation_id, quantity, operations(name_ar, weight))'
     async function load() {
       setLoading(true)
-      const [e, r, rep, per] = await Promise.all([
+      const [e, ar] = await Promise.all([
         supabase
           .from('production_entries')
-          .select('*, profiles!production_entries_worker_id_fkey(full_name), operations(name_ar, weight), entry_operations(operation_id, quantity, operations(name_ar, weight))')
+          .select(ENTRY_SELECT)
           .in('status', ['approved', 'released'])
           .gte('entry_date', range.start)
           .lte('entry_date', range.end),
-        supabase.from('incentive_rules').select('*').limit(1).maybeSingle(),
-        supabase.rpc('fn_period_report', { p_start: range.start, p_end: range.end }),
         supabase
-          .from('incentive_periods')
-          .select('*')
-          .eq('period_start', range.start)
-          .eq('period_end', range.end)
-          .maybeSingle(),
+          .from('production_entries')
+          .select(ENTRY_SELECT)
+          .eq('status', 'archived')
+          .gte('entry_date', range.start)
+          .lte('entry_date', range.end),
       ])
       if (!active) return
       setEntries(e.data ?? [])
-      setRule(r.data ?? null)
-      setPeriodReport(rep.data ?? [])
-      setPeriodRow(per.data ?? null)
+      setArchivedEntries(ar.data ?? [])
       setLoading(false)
     }
     load()
@@ -169,35 +167,35 @@ export default function AccountantDashboard() {
       row.laps += qty
       row.units += units
     }
-    const rate = Number(rule?.unit_rate ?? 0)
-    return Array.from(map.values())
-      .map((r) => ({ ...r, incentive: r.units * rate }))
-      .sort((a, b) => b.units - a.units)
-  }, [filtered, rule])
+    return Array.from(map.values()).sort((a, b) => b.units - a.units)
+  }, [filtered])
 
   const totals = useMemo(
     () =>
       rows.reduce(
-        (acc, r) => ({ laps: acc.laps + r.laps, units: acc.units + r.units, incentive: acc.incentive + r.incentive }),
-        { laps: 0, units: 0, incentive: 0 }
+        (acc, r) => ({ laps: acc.laps + r.laps, units: acc.units + r.units }),
+        { laps: 0, units: 0 }
       ),
     [rows]
   )
 
-  // ملخص المحاسبة من محرك الفترة (حاد + تسويات + معتمد)
-  const periodSummary = useMemo(
+  // الإدخالات المعتمدة من المشرف (قبل الأرشفة) + الأرشيف
+  const approvedList = useMemo(
+    () => filtered.slice().sort((a, b) => b.entry_date.localeCompare(a.entry_date)),
+    [filtered]
+  )
+
+  const archivedList = useMemo(
     () =>
-      periodReport.reduce(
-        (a, r) => ({
-          workers: a.workers + 1,
-          incentive: a.incentive + Number(r.incentive),
-          adjustment: a.adjustment + Number(r.adjustment),
-          total: a.total + Number(r.total),
-          locked: a.locked + Number(r.locked_incentive ?? 0),
-        }),
-        { workers: 0, incentive: 0, adjustment: 0, total: 0, locked: 0 }
-      ),
-    [periodReport]
+      archivedEntries
+        .filter(
+          (e) =>
+            (!opFilter || entryLines(e).some((l) => String(l.operation_id) === String(opFilter))) &&
+            (!workerFilter || e.worker_id === workerFilter)
+        )
+        .slice()
+        .sort((a, b) => b.entry_date.localeCompare(a.entry_date)),
+    [archivedEntries, opFilter, workerFilter]
   )
 
   // تفصيل حسب نوع العملية
@@ -236,8 +234,8 @@ export default function AccountantDashboard() {
   )
 
   function exportCSV() {
-    const head = ['#', 'العامل', 'عدد اللابات', 'الوحدات المرجّحة', `الحافز (${rule?.currency ?? 'EGP'})`]
-    const body = rows.map((r, i) => [i + 1, r.name, r.laps, r.units, r.incentive])
+    const head = ['#', 'العامل', 'عدد اللابات', 'الوحدات المرجّحة']
+    const body = rows.map((r, i) => [i + 1, r.name, r.laps, r.units])
     const csv =
       '\uFEFF' +
       [head, ...body]
@@ -255,28 +253,62 @@ export default function AccountantDashboard() {
   }
 
   function exportExcel() {
-    const head = ['#', 'العامل', 'عدد اللابات', 'الوحدات المرجّحة', `الحافز (${rule?.currency ?? 'EGP'})`]
-    const body = rows.map((r, i) => [i + 1, r.name, r.laps, r.units, r.incentive])
+    const head = ['#', 'العامل', 'عدد اللابات', 'الوحدات المرجّحة']
+    const body = rows.map((r, i) => [i + 1, r.name, r.laps, r.units])
     const opBody = byOperation.map((o) => [o.name, o.laps, o.units])
     exportXlsx({
       filename: `yas-report_${range.start}_${range.end}.xlsx`,
       sheetName: 'التقرير',
-      meta: [[`الفترة: ${range.start} ← ${range.end}`], [`العملة: ${rule?.currency ?? 'EGP'}`]],
+      meta: [[`الفترة: ${range.start} ← ${range.end}`]],
       headers: head,
       rows: [...body, [], ['التفصيل حسب نوع العملية'], ['العملية', 'لابات', 'وحدات'], ...opBody],
-      footer: ['', 'الإجمالي', totals.laps, totals.units, totals.incentive],
+      footer: ['', 'الإجمالي', totals.laps, totals.units],
     })
   }
 
   function exportPDF() {
     printReport({
-      title: 'تقرير الإنتاجية والحوافز',
+      title: 'تقرير الإنتاجية',
       period: range,
-      currency: rule?.currency ?? 'EGP',
       totals,
       rows,
       byOperation,
     })
+  }
+
+  // شيت Excel لتقرير الـ AI: أسماء العمال + العمليات + عدد اللابات
+  function exportAiExcel() {
+    exportXlsx({
+      filename: `yas-ai-report_${range.start}_${range.end}.xlsx`,
+      sheetName: 'تقرير AI',
+      meta: [[`الفترة: ${range.start} ← ${range.end}`]],
+      headers: ['اسم العامل', 'العملية', 'عدد اللابات'],
+      rows: filtered.map((e) => [
+        e.profiles?.full_name ?? 'غير معروف',
+        entryOperationNames(e),
+        entryTotalQty(e),
+      ]),
+      footer: ['الإجمالي', '', totals.laps],
+    })
+  }
+
+  async function archiveEntry(entry) {
+    if (!window.confirm('تأرشف الإدخال ده؟ هيتشال من القوايم ويروح الأرشيف.')) return
+    setArchiveBusy(entry.id)
+    const { error } = await supabase.rpc('fn_archive_entry', { p_entry_id: entry.id })
+    setArchiveBusy(null)
+    if (error) return window.alert(error.message)
+    setEntries((prev) => prev.filter((e) => e.id !== entry.id))
+    setArchivedEntries((prev) => [entry, ...prev])
+  }
+
+  async function restoreEntry(entry) {
+    setArchiveBusy(entry.id)
+    const { error } = await supabase.rpc('fn_restore_entry', { p_entry_id: entry.id })
+    setArchiveBusy(null)
+    if (error) return window.alert(error.message)
+    setArchivedEntries((prev) => prev.filter((e) => e.id !== entry.id))
+    setEntries((prev) => [{ ...entry, status: 'approved' }, ...prev])
   }
 
   async function runAI() {
@@ -311,7 +343,7 @@ export default function AccountantDashboard() {
   }
 
   return (
-    <Layout title="التقارير والحافز">
+    <Layout title="التقارير">
       <div className="card mb-6 flex flex-wrap items-end gap-3">
         <div className="w-full sm:w-auto">
           <label className="label">الفترة</label>
@@ -380,34 +412,102 @@ export default function AccountantDashboard() {
         <Stat label="العمال النشطين" value={activeWorkers} />
       </div>
 
-      <div className="grid gap-4 md:grid-cols-3 mb-6">
+      <div className="grid gap-4 md:grid-cols-2 mb-6">
         <Stat label="إجمالي اللابات (الفترة)" value={totals.laps} />
         <Stat label="الوحدات المرجّحة" value={totals.units} />
-        <Stat label={`إجمالي الحافز (${rule?.currency ?? 'EGP'})`} value={totals.incentive} />
       </div>
 
-      {periodReport.length > 0 && (
-        <div className="card mb-6">
-          <div className="mb-3 flex items-center justify-between">
-            <h2 className="font-bold text-lg">ملخص المحاسبة (المحرك)</h2>
-            {periodRow?.status === 'closed' ? (
-              <span className="badge bg-emerald-100 text-emerald-800">الفترة معتمدة ومقفولة</span>
-            ) : (
-              <span className="badge bg-slate-100 text-slate-600">الفترة مفتوحة</span>
-            )}
+      {/* الإدخالات المعتمدة من المشرف — بتوصل هنا أوتوماتيك بعد اعتماد المشرف */}
+      <div className="card mb-6">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h2 className="font-bold text-lg">
+              {showArchive ? 'الأرشيف' : 'إدخالات معتمدة من المشرف'}{' '}
+              <span className="text-sm font-normal text-slate-400">
+                ({(showArchive ? archivedList : approvedList).length})
+              </span>
+            </h2>
+            <p className="text-xs text-slate-500 mt-0.5">
+              {showArchive
+                ? 'الإدخالات المؤرشفة (مش بتتحسب في التقارير).'
+                : 'دي الإدخالات اللي المشرف اعتمدها — تقدر تأرشف اللي مش محتاجه.'}
+            </p>
           </div>
-          <div className="grid gap-4 md:grid-cols-4">
-            <Stat label="الحافز الحاد" value={periodSummary.incentive} />
-            <Stat label="التسويات" value={periodSummary.adjustment} />
-            <Stat label={`الإجمالي (${rule?.currency ?? 'EGP'})`} value={periodSummary.total} />
-            <Stat label="الإجمالي المعتمد" value={periodSummary.locked} />
-          </div>
+          <button onClick={() => setShowArchive((v) => !v)} className="btn-ghost !py-1.5 text-sm">
+            {showArchive ? 'رجوع للإدخالات المعتمدة' : `عرض الأرشيف (${archivedEntries.length})`}
+          </button>
         </div>
-      )}
+        <div className="table-wrap">
+          <table className="table table-cards">
+            <thead>
+              <tr>
+                <th>التاريخ</th>
+                <th>العامل</th>
+                <th>العملية</th>
+                <th>العدد</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {(() => {
+                const list = showArchive ? archivedList : approvedList
+                if (loading)
+                  return (
+                    <tr>
+                      <td colSpan={5} className="text-center text-slate-400 py-6">جاري التحميل…</td>
+                    </tr>
+                  )
+                if (list.length === 0)
+                  return (
+                    <tr>
+                      <td colSpan={5} className="text-center text-slate-400 py-6">
+                        {showArchive ? 'مفيش إدخالات في الأرشيف' : 'مفيش إدخالات معتمدة في الفترة دي'}
+                      </td>
+                    </tr>
+                  )
+                return list.map((e) => (
+                  <tr key={e.id}>
+                    <td data-label="التاريخ">{formatDate(e.entry_date)}</td>
+                    <td data-label="العامل">{e.profiles?.full_name ?? '-'}</td>
+                    <td data-label="العملية">{entryOperationNames(e)}</td>
+                    <td data-label="العدد">{formatNumber(entryTotalQty(e))}</td>
+                    <td data-label="إجراء" className="whitespace-nowrap">
+                      {showArchive ? (
+                        <button
+                          disabled={archiveBusy === e.id}
+                          onClick={() => restoreEntry(e)}
+                          className="btn-ghost !py-1 !px-2 text-xs"
+                        >
+                          استرجاع
+                        </button>
+                      ) : (
+                        <button
+                          disabled={archiveBusy === e.id}
+                          onClick={() => archiveEntry(e)}
+                          className="btn-danger !py-1 !px-2 text-xs"
+                        >
+                          أرشفة
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))
+              })()}
+            </tbody>
+          </table>
+        </div>
+      </div>
 
       {(ai || aiError) && (
         <div className={`card mb-6 ${aiError ? 'border-red-200 bg-red-50' : 'border-slate-200'}`}>
-          <h2 className="font-bold text-lg mb-2">تحليل الذكاء الاصطناعي</h2>
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <h2 className="font-bold text-lg">تحليل الذكاء الاصطناعي</h2>
+            {!aiError && (
+              <button onClick={exportAiExcel} disabled={filtered.length === 0} className="btn-ghost !py-1.5 text-sm">
+                تصدير Excel (الأسماء واللابات)
+              </button>
+            )}
+          </div>
           {aiError ? (
             <p className="text-red-700 text-sm">{aiError}</p>
           ) : (
@@ -442,18 +542,17 @@ export default function AccountantDashboard() {
                   <th>العامل</th>
                   <th>لابات</th>
                   <th>وحدات</th>
-                  <th>الحافز</th>
                 </tr>
               </thead>
               <tbody>
                 {loading && (
                   <tr>
-                    <td colSpan={5} className="text-center text-slate-400 py-6">جاري التحميل…</td>
+                    <td colSpan={4} className="text-center text-slate-400 py-6">جاري التحميل…</td>
                   </tr>
                 )}
                 {!loading && rows.length === 0 && (
                   <tr>
-                    <td colSpan={5} className="text-center text-slate-400 py-6">مفيش بيانات في الفترة دي</td>
+                    <td colSpan={4} className="text-center text-slate-400 py-6">مفيش بيانات في الفترة دي</td>
                   </tr>
                 )}
                 {rows.map((r, i) => (
@@ -469,7 +568,6 @@ export default function AccountantDashboard() {
                     </td>
                     <td data-label="لابات">{formatNumber(r.laps)}</td>
                     <td data-label="وحدات">{formatNumber(r.units)}</td>
-                    <td data-label="الحافز" className="font-medium">{formatNumber(r.incentive)}</td>
                   </tr>
                 ))}
               </tbody>
