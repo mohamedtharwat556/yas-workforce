@@ -21,6 +21,8 @@ function emptyForm(overrides = {}) {
     entry_date: toISODate(new Date()),
     notes: '',
     serials: [],
+    // وجهة كل لاب (نفس ترتيب السيريالات) — لو فيه مشكلة اللاب يروح فين
+    destinations: [],
     ...overrides,
   }
 }
@@ -28,6 +30,7 @@ function emptyForm(overrides = {}) {
 export default function WorkerDashboard() {
   const { user, profile } = useAuth()
   const [operations, setOperations] = useState([])
+  const [destinations, setDestinations] = useState([])
   const [entries, setEntries] = useState([])
   const [form, setForm] = useState(emptyForm())
   const [busy, setBusy] = useState(false)
@@ -44,6 +47,17 @@ export default function WorkerDashboard() {
     setOperations(data ?? [])
   }
 
+  // وجهات اللاب (صيانة الشاشات / قطع غيار / الكسور / الرش / البطاريات / تجميع / هالك …)
+  async function loadDestinations() {
+    const { data } = await supabase
+      .from('stages')
+      .select('code, name_ar, sort_order')
+      .eq('is_destination', true)
+      .eq('active', true)
+      .order('sort_order')
+    setDestinations(data ?? [])
+  }
+
   async function loadEntries() {
     const { data } = await supabase
       .from('production_entries')
@@ -58,6 +72,7 @@ export default function WorkerDashboard() {
   useEffect(() => {
     if (!user) return
     loadOperations()
+    loadDestinations()
     loadEntries()
   }, [user])
 
@@ -124,6 +139,38 @@ export default function WorkerDashboard() {
     })
   }
 
+  function setDestination(idx, value) {
+    setForm((f) => {
+      const destinations = [...f.destinations]
+      while (destinations.length <= idx) destinations.push('')
+      destinations[idx] = value
+      return { ...f, destinations }
+    })
+  }
+
+  // نضمن إن اللاب بالسيريال موجود، وبعدين نسجّل وجهته في مسار اللاب فورًا
+  async function routeLaptop(serial, stageCode) {
+    const { data: existing } = await supabase
+      .from('laptops')
+      .select('id')
+      .eq('serial', serial)
+      .maybeSingle()
+
+    let laptopId = existing?.id
+    if (!laptopId) {
+      const { data: created, error } = await supabase.rpc('fn_create_laptop', { p_serial: serial })
+      if (error) throw new Error(`السيريال «${serial}»: ${error.message}`)
+      laptopId = Array.isArray(created) ? created[0]?.id : created?.id
+    }
+    if (!laptopId) throw new Error(`تعذّر تجهيز لاب السيريال «${serial}».`)
+
+    const { error } = await supabase.rpc('fn_advance_stage', {
+      p_laptop_id: laptopId,
+      p_stage_code: stageCode,
+    })
+    if (error) throw new Error(`السيريال «${serial}»: ${error.message}`)
+  }
+
   async function handleSubmit(e) {
     e.preventDefault()
     setMsg(null)
@@ -137,6 +184,16 @@ export default function WorkerDashboard() {
       return setMsg({ type: 'error', text: 'اكتب عدد صحيح لكل عملية اخترتها.' })
     }
 
+    // اللابات في الإدخال: سيريال + وجهته (نفس الترتيب)
+    const totalLaps = lines.reduce((s, l) => s + l.quantity, 0)
+    const laptopRows = Array.from({ length: totalLaps }, (_, i) => ({
+      serial: String(form.serials[i] ?? '').trim(),
+      destination: form.destinations[i] ?? '',
+    }))
+    if (laptopRows.some((r) => r.destination && !r.serial)) {
+      return setMsg({ type: 'error', text: 'حدّد سيريال اللاب الأول قبل ما تختار وجهته.' })
+    }
+
     const wasEdit = Boolean(editingId)
     setBusy(true)
     try {
@@ -144,7 +201,6 @@ export default function WorkerDashboard() {
 
       // الأعمدة القديمة (operation_id/quantity) بنسيبها = أول بند/الإجمالي
       // عشان أي شاشة قديمة تفضل شغالة.
-      const totalLaps = lines.reduce((s, l) => s + l.quantity, 0)
       const base = {
         operation_id: lines[0].operation_id,
         entry_date: form.entry_date,
@@ -178,15 +234,17 @@ export default function WorkerDashboard() {
       if (linesError) throw linesError
 
       // السيريالات (خانة لكل لاب — اختياري)
-      const serials = form.serials
-        .slice(0, totalLaps)
-        .map((s) => String(s ?? '').trim())
-        .filter(Boolean)
-      if (serials.length) {
+      const serialRows = laptopRows.filter((r) => r.serial)
+      if (serialRows.length) {
         const { error } = await supabase
           .from('lap_serials')
-          .insert(serials.map((serial) => ({ entry_id: entryId, serial })))
+          .insert(serialRows.map((r) => ({ entry_id: entryId, serial: r.serial })))
         if (error) throw error
+      }
+
+      // مسار اللاب: بنسجّل وجهة كل لاب (لو محدّد) في مسار اللاب فورًا
+      for (const r of laptopRows) {
+        if (r.serial && r.destination) await routeLaptop(r.serial, r.destination)
       }
 
       setForm(emptyForm({ entry_date: form.entry_date }))
@@ -218,15 +276,30 @@ export default function WorkerDashboard() {
         .select('operation_id, quantity')
         .eq('entry_id', entry.id),
     ])
-    const serials = serialsRes.data ?? []
+    const serialList = (serialsRes.data ?? []).map((s) => s.serial)
     const lines = (linesRes.data ?? []).length
       ? linesRes.data
       : [{ operation_id: entry.operation_id, quantity: entry.quantity }]
+
+    // نرجّع وجهة كل لاب من مسار اللاب الحالي (لو كانت وجهة)
+    let destMap = {}
+    if (serialList.length) {
+      const { data: laps } = await supabase
+        .from('laptops')
+        .select('serial, current_stage')
+        .in('serial', serialList)
+      const codes = new Set(destinations.map((d) => d.code))
+      destMap = Object.fromEntries(
+        (laps ?? []).filter((l) => codes.has(l.current_stage)).map((l) => [l.serial, l.current_stage])
+      )
+    }
+
     setForm({
       lines: lines.map((l) => ({ operation_id: String(l.operation_id), quantity: String(l.quantity) })),
       entry_date: entry.entry_date,
       notes: entry.notes ?? '',
-      serials: serials.map((s) => s.serial),
+      serials: serialList,
+      destinations: serialList.map((s) => destMap[s] ?? ''),
     })
     setEditingId(entry.id)
     window.scrollTo({ top: 0, behavior: 'smooth' })
@@ -316,27 +389,44 @@ export default function WorkerDashboard() {
 
           {serialGroups.length > 0 && (
             <div>
-              <label className="label">السيريالات (اختياري)</label>
+              <label className="label">سيريالات اللابات ووجهتها (اختياري)</label>
               <div className="space-y-4">
                 {serialGroups.map((g) => (
                   <div key={g.key}>
                     <p className="mb-1 text-sm font-medium">{g.name}</p>
                     <div className="space-y-2">
                       {Array.from({ length: g.qty }).map((_, i) => (
-                        <input
-                          key={i}
-                          className="input font-mono text-sm"
-                          dir="ltr"
-                          placeholder={`سيريال ${i + 1}`}
-                          value={form.serials[g.start + i] ?? ''}
-                          onChange={(e) => setSerial(g.start + i, e.target.value)}
-                        />
+                        <div key={i} className="flex flex-col gap-2 sm:flex-row">
+                          <input
+                            className="input flex-1 font-mono text-sm"
+                            dir="ltr"
+                            placeholder={`سيريال ${i + 1}`}
+                            value={form.serials[g.start + i] ?? ''}
+                            onChange={(e) => setSerial(g.start + i, e.target.value)}
+                          />
+                          <select
+                            className="input sm:!w-48"
+                            value={form.destinations[g.start + i] ?? ''}
+                            onChange={(e) => setDestination(g.start + i, e.target.value)}
+                          >
+                            <option value="">بدون مشكلة</option>
+                            {destinations.map((d) => (
+                              <option key={d.code} value={d.code}>
+                                {d.name_ar}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
                       ))}
                     </div>
                   </div>
                 ))}
               </div>
-              <p className="mt-1 text-xs text-slate-400">تحت كل عملية خانات بعدد اللابات اللي كتبته لها.</p>
+              <p className="mt-1 text-xs text-slate-400">
+                لو اللاب طلع فيه مشكلة اختار وجهته (صيانة الشاشات / قطع غيار / الكسور / الرش / البطاريات /
+                تجميع / هالك) — وتتسجّل في مسار اللاب فورًا. اختار «جاهز للإصدار» لو خلص ويتبعت للمشرف، أو
+                سيبها «بدون مشكلة» للمسار العادي.
+              </p>
             </div>
           )}
 
