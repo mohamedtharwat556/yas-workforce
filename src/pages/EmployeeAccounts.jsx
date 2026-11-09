@@ -5,9 +5,9 @@ import { supabase } from '../lib/supabase'
 import { buildPassword, buildUsername, emailFor } from '../lib/translit'
 import { formatDate } from '../lib/dates'
 
-const ROLE_LABEL = { worker: 'عامل', supervisor: 'مشرف', accountant: 'حسابات' }
+const ROLE_LABEL = { worker: 'موظف', supervisor: 'مشرف', accountant: 'حسابات' }
 const ROLE_OPTIONS = [
-  { value: 'worker', label: 'عامل' },
+  { value: 'worker', label: 'موظف' },
   { value: 'supervisor', label: 'مشرف' },
   { value: 'accountant', label: 'حسابات' },
 ]

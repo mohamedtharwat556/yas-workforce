@@ -66,7 +66,7 @@ export default function SupervisorDashboard() {
     })
     setBusyId(null)
     if (error) setMsg({ type: 'error', text: error.message })
-    else setMsg({ type: 'ok', text: 'تم إرجاع الإدخال للعامل عشان يعدّله.' })
+    else setMsg({ type: 'ok', text: 'تم إرجاع الإدخال للموظف عشان يعدّله.' })
     setReturning(null)
     setReason('')
     loadAll()
@@ -76,7 +76,7 @@ export default function SupervisorDashboard() {
     exportXlsx({
       filename: `yas-pending-entries_${toISODate(new Date())}.xlsx`,
       sheetName: 'إدخالات للمراجعة',
-      headers: ['العامل', 'التاريخ', 'العملية', 'العدد', 'الملاحظة', 'الحالة'],
+      headers: ['الموظف', 'التاريخ', 'العملية', 'العدد', 'الملاحظة', 'الحالة'],
       rows: entries.map((e) => [
         e.profiles?.full_name ?? '-',
         e.entry_date,
@@ -150,7 +150,7 @@ export default function SupervisorDashboard() {
             <table className="table table-cards">
               <thead>
                 <tr>
-                  <th>العامل</th>
+                  <th>الموظف</th>
                   <th>التاريخ</th>
                   <th>العملية</th>
                   <th>العدد</th>
@@ -168,7 +168,7 @@ export default function SupervisorDashboard() {
                 )}
                 {entries.map((e) => (
                   <tr key={e.id} className="cursor-pointer hover:bg-slate-50" onClick={() => setDetailId(e.id)}>
-                    <td data-label="العامل">{e.profiles?.full_name ?? '-'}</td>
+                    <td data-label="الموظف">{e.profiles?.full_name ?? '-'}</td>
                     <td data-label="التاريخ">{formatDate(e.entry_date)}</td>
                     <td data-label="العملية">{entryOperationNames(e)}</td>
                     <td data-label="العدد">{formatNumber(entryTotalQty(e))}</td>
@@ -242,7 +242,7 @@ export default function SupervisorDashboard() {
                           disabled={busyId === u.id || self}
                           onChange={(e) => updateUser(u.id, { role: e.target.value })}
                         >
-                          <option value="worker">عامل</option>
+                          <option value="worker">موظف</option>
                           <option value="supervisor">مشرف</option>
                           {canGrantAdmin && <option value="accountant">حسابات</option>}
                         </select>
@@ -289,9 +289,9 @@ export default function SupervisorDashboard() {
           aria-modal="true"
         >
           <form onSubmit={submitReturn} className="card max-h-[92vh] w-full overflow-y-auto rounded-b-none rounded-t-2xl md:my-8 md:max-w-lg md:rounded-xl" onClick={(ev) => ev.stopPropagation()}>
-            <h2 className="text-lg font-bold">إرجاع الإدخال للعامل</h2>
+            <h2 className="text-lg font-bold">إرجاع الإدخال للموظف</h2>
             <p className="text-xs text-slate-500 mt-1 mb-4">
-              {returning.profiles?.full_name ?? 'العامل'} — {entryOperationNames(returning)} · العدد {formatNumber(entryTotalQty(returning))}
+              {returning.profiles?.full_name ?? 'الموظف'} — {entryOperationNames(returning)} · العدد {formatNumber(entryTotalQty(returning))}
             </p>
             <label className="label">سبب الإرجاع (اختياري)</label>
             <textarea

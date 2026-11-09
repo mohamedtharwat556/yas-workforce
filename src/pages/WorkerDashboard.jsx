@@ -24,6 +24,8 @@ function emptyForm(overrides = {}) {
     serials: [],
     // وجهة كل لاب (نفس ترتيب السيريالات) — لو فيه مشكلة اللاب يروح فين
     destinations: [],
+    // هل اللاب ده فيه مشكلة؟ (خانة اختيار في الواجهة بس — مش بتتخزّن)
+    problems: [],
     ...overrides,
   }
 }
@@ -106,6 +108,9 @@ export default function WorkerDashboard() {
   // الإدخالات الظاهرة في القائمة الرئيسية (من غير اللي الموظف نقلها لأرشيفه)
   const visibleEntries = useMemo(() => entries.filter((e) => !e.worker_archived_at), [entries])
 
+  // ترحيب حسب وقت الدخول (صباح / مساء)
+  const greeting = new Date().getHours() < 12 ? 'صباح الخير' : 'مساء الخير'
+
   function update(field, value) {
     setForm((f) => ({ ...f, [field]: value }))
   }
@@ -158,6 +163,22 @@ export default function WorkerDashboard() {
     })
   }
 
+  // تحديد حالة اللاب: سليم (مفيش مشكلة) أو فيه مشكلة تختار وجهتها
+  function setProblem(idx, isProblem) {
+    setForm((f) => {
+      const problems = [...f.problems]
+      while (problems.length <= idx) problems.push(false)
+      problems[idx] = isProblem
+
+      const destinations = [...f.destinations]
+      while (destinations.length <= idx) destinations.push('')
+      // لو رجّعناه «سليم» نشيل الوجهة المختارة
+      if (!isProblem) destinations[idx] = ''
+
+      return { ...f, problems, destinations }
+    })
+  }
+
   // نضمن إن اللاب بالسيريال موجود، وبعدين نسجّل وجهته في مسار اللاب فورًا
   async function routeLaptop(serial, stageCode) {
     const { data: existing } = await supabase
@@ -194,14 +215,18 @@ export default function WorkerDashboard() {
       return setMsg({ type: 'error', text: 'اكتب عدد صحيح لكل عملية اخترتها.' })
     }
 
-    // اللابات في الإدخال: سيريال + وجهته (نفس الترتيب)
+    // اللابات في الإدخال: سيريال + حالته ووجهته (نفس الترتيب)
     const totalLaps = lines.reduce((s, l) => s + l.quantity, 0)
     const laptopRows = Array.from({ length: totalLaps }, (_, i) => ({
       serial: String(form.serials[i] ?? '').trim(),
       destination: form.destinations[i] ?? '',
+      problem: Boolean(form.problems[i]),
     }))
-    if (laptopRows.some((r) => r.destination && !r.serial)) {
-      return setMsg({ type: 'error', text: 'حدّد سيريال اللاب الأول قبل ما تختار وجهته.' })
+    if (laptopRows.some((r) => !r.serial && (r.destination || r.problem))) {
+      return setMsg({ type: 'error', text: 'حدّد سيريال اللاب الأول قبل ما تحدّد حالته.' })
+    }
+    if (laptopRows.some((r) => r.problem && !r.destination)) {
+      return setMsg({ type: 'error', text: 'اختار نوع المشكلة لكل لاب حدّدته «فيه مشكلة».' })
     }
 
     const wasEdit = Boolean(editingId)
@@ -310,6 +335,7 @@ export default function WorkerDashboard() {
       notes: entry.notes ?? '',
       serials: serialList,
       destinations: serialList.map((s) => destMap[s] ?? ''),
+      problems: serialList.map((s) => Boolean(destMap[s])),
     })
     setEditingId(entry.id)
     window.scrollTo({ top: 0, behavior: 'smooth' })
@@ -357,7 +383,9 @@ export default function WorkerDashboard() {
       <div className="grid gap-6 lg:grid-cols-5">
         <form onSubmit={handleSubmit} className="card lg:col-span-2 space-y-4 h-fit order-1 lg:order-none">
           <h2 className="font-bold text-lg">{editingId ? 'تعديل إدخال' : 'تسجيل إنتاج جديد'}</h2>
-          <p className="text-xs text-slate-500">أهلاً {profile?.full_name}، سجّل اللي عملته النهاردة.</p>
+          <p className="text-xs text-slate-500">
+            {greeting} يا ضلع الشركة {profile?.full_name}، سجّل اللي عملته النهاردة.
+          </p>
 
           {editingId && (
             <div className="flex items-start justify-between gap-3 rounded-lg bg-orange-50 p-3 text-sm text-orange-800">
@@ -413,43 +441,66 @@ export default function WorkerDashboard() {
 
           {serialGroups.length > 0 && (
             <div>
-              <label className="label">سيريالات اللابات ووجهتها (اختياري)</label>
+              <label className="label">سيريالات اللابات وحالتها (اختياري)</label>
               <div className="space-y-4">
                 {serialGroups.map((g) => (
                   <div key={g.key}>
                     <p className="mb-1 text-sm font-medium">{g.name}</p>
                     <div className="space-y-2">
-                      {Array.from({ length: g.qty }).map((_, i) => (
-                        <div key={i} className="flex flex-col gap-2 sm:flex-row">
-                          <input
-                            className="input flex-1 font-mono text-sm"
-                            dir="ltr"
-                            placeholder={`سيريال ${i + 1}`}
-                            value={form.serials[g.start + i] ?? ''}
-                            onChange={(e) => setSerial(g.start + i, e.target.value)}
-                          />
-                          <select
-                            className="input sm:!w-48"
-                            value={form.destinations[g.start + i] ?? ''}
-                            onChange={(e) => setDestination(g.start + i, e.target.value)}
-                          >
-                            <option value="">بدون مشكلة</option>
-                            {destinations.map((d) => (
-                              <option key={d.code} value={d.code}>
-                                {d.name_ar}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                      ))}
+                      {Array.from({ length: g.qty }).map((_, i) => {
+                        const idx = g.start + i
+                        const hasProblem = Boolean(form.problems[idx])
+                        return (
+                          <div key={i} className="space-y-2 rounded-lg border border-slate-200 p-2">
+                            <div className="flex flex-col gap-2 sm:flex-row">
+                              <input
+                                className="input flex-1 font-mono text-sm"
+                                dir="ltr"
+                                placeholder={`سيريال ${i + 1}`}
+                                value={form.serials[idx] ?? ''}
+                                onChange={(e) => setSerial(idx, e.target.value)}
+                              />
+                              <div className="flex shrink-0 overflow-hidden rounded-lg border border-slate-300">
+                                <button
+                                  type="button"
+                                  onClick={() => setProblem(idx, false)}
+                                  className={`px-3 py-2 text-sm ${hasProblem ? 'bg-white text-slate-600' : 'bg-emerald-600 text-white'}`}
+                                >
+                                  سليم
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setProblem(idx, true)}
+                                  className={`px-3 py-2 text-sm ${hasProblem ? 'bg-red-600 text-white' : 'bg-white text-slate-600'}`}
+                                >
+                                  فيه مشكلة
+                                </button>
+                              </div>
+                            </div>
+                            {hasProblem && (
+                              <select
+                                className="input"
+                                value={form.destinations[idx] ?? ''}
+                                onChange={(e) => setDestination(idx, e.target.value)}
+                              >
+                                <option value="">اختار المشكلة…</option>
+                                {destinations.map((d) => (
+                                  <option key={d.code} value={d.code}>
+                                    {d.name_ar}
+                                  </option>
+                                ))}
+                              </select>
+                            )}
+                          </div>
+                        )
+                      })}
                     </div>
                   </div>
                 ))}
               </div>
               <p className="mt-1 text-xs text-slate-400">
-                لو اللاب طلع فيه مشكلة اختار وجهته (صيانة الشاشات / قطع غيار / الكسور / الرش / البطاريات /
-                تجميع / هالك) — وتتسجّل في مسار اللاب فورًا. اختار «جاهز للإصدار» لو خلص ويتبعت للمشرف، أو
-                سيبها «بدون مشكلة» للمسار العادي.
+                حدّد حالة كل لاب: «سليم» (الافتراضي)، أو «فيه مشكلة» وتختار وجهته (صيانة الشاشات / ناقص قطع غيار /
+                الكسور / الرش / البطاريات / هالك) — وتتسجّل في مسار اللاب فورًا.
               </p>
             </div>
           )}

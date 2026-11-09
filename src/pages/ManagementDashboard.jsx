@@ -323,7 +323,7 @@ export default function ManagementDashboard() {
         </div>
       </div>
 
-      {/* اتجاه يومي + ترتيب العمال */}
+      {/* اتجاه يومي + ترتيب الموظفين */}
       <div className="mb-4 grid gap-4 lg:grid-cols-2">
         <div className="card">
           <h2 className="mb-3 font-bold">الاتجاه اليومي (العدد)</h2>
@@ -345,7 +345,7 @@ export default function ManagementDashboard() {
         </div>
 
         <div className="card">
-          <h2 className="mb-3 font-bold">ترتيب العمال (أعلى 7 بالعدد)</h2>
+          <h2 className="mb-3 font-bold">ترتيب الموظفين (أعلى 7 بالعدد)</h2>
           {cur.workers.length === 0 ? (
             <p className="py-10 text-center text-sm text-slate-400">
               {loadingAnalytics ? 'جاري التحميل…' : 'مفيش بيانات في الفترة دي'}

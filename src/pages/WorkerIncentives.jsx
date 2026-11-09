@@ -81,7 +81,7 @@ export default function WorkerIncentives() {
       filename: `yas-my-production_${toISODate(new Date())}.xlsx`,
       sheetName: 'إنتاجي',
       meta: [
-        [`العامل: ${profile?.full_name ?? ''}`],
+        [`الموظف: ${profile?.full_name ?? ''}`],
         [`إجمالي تراكمي: ${formatNumber(stats.all.laps)} لاب`],
       ],
       headers: ['التاريخ', 'العملية', 'العدد', 'الحالة'],

@@ -134,7 +134,7 @@ export default function AccountantDashboard() {
     }
   }, [range.start, range.end])
 
-  // إدخالات بعد تطبيق فلاتر العامل ونوع العملية
+  // إدخالات بعد تطبيق فلاتر الموظف ونوع العملية
   const filtered = useMemo(
     () =>
       entries.filter(
@@ -225,7 +225,7 @@ export default function AccountantDashboard() {
   )
 
   function exportCSV() {
-    const head = ['#', 'العامل', 'عدد اللابات']
+    const head = ['#', 'الموظف', 'عدد اللابات']
     const body = rows.map((r, i) => [i + 1, r.name, r.laps])
     const csv =
       '\uFEFF' +
@@ -244,7 +244,7 @@ export default function AccountantDashboard() {
   }
 
   function exportExcel() {
-    const head = ['#', 'العامل', 'عدد اللابات']
+    const head = ['#', 'الموظف', 'عدد اللابات']
     const body = rows.map((r, i) => [i + 1, r.name, r.laps])
     const opBody = byOperation.map((o) => [o.name, o.laps])
     exportXlsx({
@@ -267,16 +267,16 @@ export default function AccountantDashboard() {
     })
   }
 
-  // شيت Excel: ورقة «ملخّص العمال» (إجمالي كل عامل) + ورقة «تفصيل الإدخالات»
+  // شيت Excel: ورقة «ملخّص الموظفين» (إجمالي كل موظف) + ورقة «تفصيل الإدخالات»
   function exportAiExcel() {
     exportXlsxSheets({
       filename: `yas-ai-report_${range.start}_${range.end}.xlsx`,
       sheets: [
         {
-          sheetName: 'ملخّص العمال',
-          title: 'ملخّص العمال — عدد اللابات',
+          sheetName: 'ملخّص الموظفين',
+          title: 'ملخّص الموظفين — عدد اللابات',
           meta: [[`الفترة: ${range.start} ← ${range.end}`]],
-          headers: ['#', 'اسم العامل', 'عدد اللابات'],
+          headers: ['#', 'اسم الموظف', 'عدد اللابات'],
           rows: rows.map((r, i) => [i + 1, r.name, r.laps]),
           footer: ['', 'الإجمالي', totals.laps],
         },
@@ -284,7 +284,7 @@ export default function AccountantDashboard() {
           sheetName: 'تفصيل الإدخالات',
           title: 'تفصيل الإدخالات',
           meta: [[`الفترة: ${range.start} ← ${range.end}`]],
-          headers: ['اسم العامل', 'العملية', 'عدد اللابات'],
+          headers: ['اسم الموظف', 'العملية', 'عدد اللابات'],
           rows: filtered.map((e) => [
             e.profiles?.full_name ?? 'غير معروف',
             entryOperationNames(e),
@@ -370,9 +370,9 @@ export default function AccountantDashboard() {
           </>
         )}
         <div className="w-full sm:w-auto">
-          <label className="label">العامل</label>
+          <label className="label">الموظف</label>
           <select className="input w-44" value={workerFilter} onChange={(e) => setWorkerFilter(e.target.value)}>
-            <option value="">كل العمال</option>
+            <option value="">كل الموظفين</option>
             {workerOptions.map((w) => (
               <option key={w.id} value={w.id}>{w.name}</option>
             ))}
@@ -401,7 +401,7 @@ export default function AccountantDashboard() {
           تصدير CSV
         </button>
         <button onClick={exportAiExcel} disabled={filtered.length === 0} className="btn-ghost">
-          تصدير شيت العمال (Excel)
+          تصدير شيت الموظفين (Excel)
         </button>
         <button onClick={runAI} disabled={aiBusy || rows.length === 0} className="btn-primary">
           {aiBusy ? 'جاري التحليل…' : 'تقرير AI'}
@@ -416,7 +416,7 @@ export default function AccountantDashboard() {
         <Stat label="لابات النهاردة" value={overview?.today.laps ?? 0} />
         <Stat label="لابات الأسبوع" value={overview?.week.laps ?? 0} />
         <Stat label="لابات الشهر" value={overview?.month.laps ?? 0} />
-        <Stat label="العمال النشطين" value={activeWorkers} />
+        <Stat label="الموظفين النشطين" value={activeWorkers} />
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 mb-6">
@@ -448,7 +448,7 @@ export default function AccountantDashboard() {
             <thead>
               <tr>
                 <th>التاريخ</th>
-                <th>العامل</th>
+                <th>الموظف</th>
                 <th>العملية</th>
                 <th>العدد</th>
                 <th></th>
@@ -474,7 +474,7 @@ export default function AccountantDashboard() {
                 return list.map((e) => (
                   <tr key={e.id}>
                     <td data-label="التاريخ">{formatDate(e.entry_date)}</td>
-                    <td data-label="العامل">{e.profiles?.full_name ?? '-'}</td>
+                    <td data-label="الموظف">{e.profiles?.full_name ?? '-'}</td>
                     <td data-label="العملية">{entryOperationNames(e)}</td>
                     <td data-label="العدد">{formatNumber(entryTotalQty(e))}</td>
                     <td data-label="إجراء" className="whitespace-nowrap">
@@ -519,7 +519,7 @@ export default function AccountantDashboard() {
 
       <div className="grid gap-6 lg:grid-cols-2 mb-6">
         <div className="card min-w-0">
-          <h2 className="font-bold text-lg mb-3">العدد لكل عامل</h2>
+          <h2 className="font-bold text-lg mb-3">العدد لكل موظف</h2>
           <div style={{ width: '100%', height: 280 }}>
             <ResponsiveContainer>
               <BarChart data={rows} margin={{ top: 10, right: 10, left: 0, bottom: 40 }}>
@@ -540,7 +540,7 @@ export default function AccountantDashboard() {
               <thead>
                 <tr>
                   <th>#</th>
-                  <th>العامل</th>
+                  <th>الموظف</th>
                   <th>لابات</th>
                 </tr>
               </thead>
@@ -558,7 +558,7 @@ export default function AccountantDashboard() {
                 {rows.map((r, i) => (
                   <tr key={r.id}>
                     <td data-label="#" className="text-slate-400">{i + 1}</td>
-                    <td data-label="العامل">
+                    <td data-label="الموظف">
                       <button
                         onClick={() => setOpenWorkerId(r.id)}
                         className="font-medium text-slate-900 underline decoration-dotted"

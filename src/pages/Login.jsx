@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext'
 
 // أدوار الدخول (بتختار الدور بس، وبعدها تكتب الإيميل والباسورد)
 const ROLES = [
-  { key: 'worker', label: 'عامل' },
+  { key: 'worker', label: 'موظف' },
   { key: 'supervisor', label: 'مشرف' },
   { key: 'accountant', label: 'حسابات' },
 ]

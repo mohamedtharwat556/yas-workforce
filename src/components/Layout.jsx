@@ -23,7 +23,7 @@ const NAV = {
   ],
 }
 
-const ROLE_LABEL = { worker: 'عامل', supervisor: 'مشرف', accountant: 'الحسابات' }
+const ROLE_LABEL = { worker: 'موظف', supervisor: 'مشرف', accountant: 'الحسابات' }
 
 // أيقونات SVG بسيطة لكل مسار
 const ICONS = {
@@ -104,7 +104,7 @@ export default function Layout({ title, children }) {
               {profile?.full_name} · <span className="font-medium text-white">{ROLE_LABEL[profile?.role] ?? profile?.role}</span>
             </span>
             <NotificationBell />
-            {/* تغيير كلمة المرور متاح للمشرف والحسابات بس — العامل بياخد باسورده من الإدارة */}
+            {/* تغيير كلمة المرور متاح للمشرف والحسابات بس — الموظف بياخد باسورده من الإدارة */}
             {profile?.role !== 'worker' && (
               <Link
                 to="/password"

@@ -242,7 +242,7 @@ const VALUE_LABELS = {
   rejected: 'مرفوض',
   closed: 'مقفول',
   open: 'مفتوح',
-  worker: 'عامل',
+  worker: 'موظف',
   supervisor: 'مشرف',
   accountant: 'حسابات',
 }

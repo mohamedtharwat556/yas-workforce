@@ -20,8 +20,8 @@ export function printReport({
   totals,
   rows = [],
   byOperation = [],
-  rowsTitle = 'الإنتاجية لكل عامل',
-  rowsLabel = 'العامل',
+  rowsTitle = 'الإنتاجية لكل موظف',
+  rowsLabel = 'الموظف',
 }) {
   const win = window.open('', '_blank', 'width=1000,height=760')
   if (!win) {
