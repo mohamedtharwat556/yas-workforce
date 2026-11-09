@@ -60,7 +60,7 @@ export default function AccountantDashboard() {
         supabase
           .from('production_entries')
           .select('entry_date, quantity, operations(weight), entry_operations(quantity, operations(weight))')
-          .eq('status', 'released')
+          .in('status', ['approved', 'released'])
           .gte('entry_date', toISODate(from)),
       ])
       if (!active) return
@@ -98,7 +98,7 @@ export default function AccountantDashboard() {
         supabase
           .from('production_entries')
           .select('*, profiles!production_entries_worker_id_fkey(full_name), operations(name_ar, weight), entry_operations(operation_id, quantity, operations(name_ar, weight))')
-          .eq('status', 'released')
+          .in('status', ['approved', 'released'])
           .gte('entry_date', range.start)
           .lte('entry_date', range.end),
         supabase.from('incentive_rules').select('*').limit(1).maybeSingle(),
@@ -247,7 +247,6 @@ export default function AccountantDashboard() {
     exportXlsx({
       filename: `yas-report_${range.start}_${range.end}.xlsx`,
       sheetName: 'التقرير',
-      title: 'تقرير الإنتاجية والحوافز',
       meta: [[`الفترة: ${range.start} ← ${range.end}`], [`العملة: ${rule?.currency ?? 'EGP'}`]],
       headers: head,
       rows: [...body, [], ['التفصيل حسب نوع العملية'], ['العملية', 'لابات', 'وحدات'], ...opBody],
@@ -356,6 +355,10 @@ export default function AccountantDashboard() {
         </button>
       </div>
 
+      <p className="mb-3 text-xs text-slate-500">
+        التقرير بيحسب كل الإدخالات <b>المعتمدة</b> من المشرف (+ المُصدرة) في الفترة المختارة.
+      </p>
+
       <div className="grid gap-4 md:grid-cols-4 mb-6">
         <Stat label="لابات النهاردة" value={overview?.today.laps ?? 0} />
         <Stat label="لابات الأسبوع" value={overview?.week.laps ?? 0} />
@@ -400,13 +403,13 @@ export default function AccountantDashboard() {
       )}
 
       <div className="grid gap-6 lg:grid-cols-2 mb-6">
-        <div className="card">
+        <div className="card min-w-0">
           <h2 className="font-bold text-lg mb-3">الوحدات المرجّحة لكل عامل</h2>
           <div style={{ width: '100%', height: 280 }}>
             <ResponsiveContainer>
               <BarChart data={rows} margin={{ top: 10, right: 10, left: 0, bottom: 40 }}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                <XAxis dataKey="name" angle={-30} textAnchor="end" interval={0} height={60} tick={{ fontSize: 12 }} />
+                <XAxis dataKey="name" angle={-30} textAnchor="end" interval="preserveStartEnd" height={60} tick={{ fontSize: 12 }} />
                 <YAxis tick={{ fontSize: 12 }} />
                 <Tooltip />
                 <Bar dataKey="units" fill="#1d4ed8" radius={[4, 4, 0, 0]} name="وحدات" />
@@ -493,13 +496,13 @@ export default function AccountantDashboard() {
           </div>
         </div>
 
-        <div className="card">
+        <div className="card min-w-0">
           <h2 className="font-bold text-lg mb-3">الاتجاه اليومي (وحدات مرجّحة)</h2>
           <div style={{ width: '100%', height: 280 }}>
             <ResponsiveContainer>
               <LineChart data={byDay} margin={{ top: 10, right: 10, left: 0, bottom: 40 }}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                <XAxis dataKey="label" angle={-30} textAnchor="end" height={60} tick={{ fontSize: 11 }} />
+                <XAxis dataKey="label" angle={-30} textAnchor="end" interval="preserveStartEnd" height={60} tick={{ fontSize: 11 }} />
                 <YAxis tick={{ fontSize: 12 }} />
                 <Tooltip />
                 <Line type="monotone" dataKey="units" stroke="#1d4ed8" strokeWidth={2} name="وحدات" dot={{ r: 3 }} />

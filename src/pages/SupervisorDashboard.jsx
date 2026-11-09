@@ -35,7 +35,7 @@ export default function SupervisorDashboard() {
         .from('production_entries')
         .select('*, profiles!production_entries_worker_id_fkey(full_name), operations(name_ar), entry_operations(operation_id, quantity, operations(name_ar, weight))')
         .in('status', ['draft', 'submitted'])
-        .order('created_at'),
+        .order('created_at', { ascending: false }),
       supabase.from('operations').select('*').order('sort_order'),
       supabase.from('incentive_rules').select('*').limit(1).maybeSingle(),
       supabase.from('profiles').select('*').order('created_at', { ascending: false }),
@@ -123,8 +123,6 @@ export default function SupervisorDashboard() {
     exportXlsx({
       filename: `yas-pending-entries_${toISODate(new Date())}.xlsx`,
       sheetName: 'إدخالات للمراجعة',
-      title: 'إدخالات في انتظار المراجعة',
-      meta: [[`العدد: ${entries.length}`]],
       headers: ['العامل', 'التاريخ', 'العملية', 'العدد', 'الملاحظة', 'الحالة'],
       rows: entries.map((e) => [
         e.profiles?.full_name ?? '-',
@@ -141,8 +139,6 @@ export default function SupervisorDashboard() {
     exportXlsx({
       filename: `yas-users_${toISODate(new Date())}.xlsx`,
       sheetName: 'المستخدمون',
-      title: 'قائمة المستخدمين',
-      meta: [[`العدد: ${users.length}`]],
       headers: ['الاسم', 'الإيميل', 'الدور', 'الحالة', 'تاريخ الإنشاء'],
       rows: users.map((u) => [u.full_name, u.email, u.role, u.status, formatDate(u.created_at)]),
     })
@@ -232,7 +228,12 @@ export default function SupervisorDashboard() {
       {tab === 'release' && (
         <div className="card">
           <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-            <h2 className="font-bold text-lg">إدخالات في انتظار المراجعة</h2>
+            <div>
+              <h2 className="font-bold text-lg">إدخالات في انتظار المراجعة</h2>
+              <p className="text-xs text-slate-500 mt-0.5">
+                {entries.length === 0 ? 'مفيش إدخالات معلّقة' : `${entries.length} إدخال في انتظار اعتماد المشرف`}
+              </p>
+            </div>
             <button onClick={exportPendingEntries} disabled={entries.length === 0} className="btn-ghost !py-1.5 text-sm">
               تصدير Excel
             </button>

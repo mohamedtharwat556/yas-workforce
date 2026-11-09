@@ -11,8 +11,6 @@ const NAV = {
   ],
   supervisor: [
     { to: '/supervisor', label: 'لوحة المشرف', short: 'المشرف' },
-    { to: '/worker', label: 'إدخال إنتاجي', short: 'إدخال' },
-    { to: '/laptops', label: 'مسار اللاب', short: 'لابات' },
     { to: '/accountant', label: 'التقارير', short: 'تقارير' },
     { to: '/accountant/locks', label: 'اعتماد الحوافز', short: 'اعتماد' },
     { to: '/supervisor/accounts', label: 'إدارة الحسابات', short: 'حسابات' },

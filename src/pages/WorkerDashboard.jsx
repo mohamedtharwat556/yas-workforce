@@ -79,7 +79,8 @@ export default function WorkerDashboard() {
     loadEntries()
   }, [user])
 
-  const released = useMemo(() => entries.filter((e) => e.status === 'released'), [entries])
+  // بنحسب الإدخالات المعتمدة من المشرف (وأيضًا المُصدرة) في ملخّص الإنتاجية
+  const released = useMemo(() => entries.filter((e) => e.status === 'approved' || e.status === 'released'), [entries])
 
   const summary = useMemo(() => {
     const today = toISODate(new Date())

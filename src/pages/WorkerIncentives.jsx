@@ -23,7 +23,7 @@ export default function WorkerIncentives() {
           .from('production_entries')
           .select('*, operations(name_ar, weight), entry_operations(operation_id, quantity, operations(name_ar, weight))')
           .eq('worker_id', user.id)
-          .eq('status', 'released')
+          .in('status', ['approved', 'released'])
           .order('entry_date', { ascending: false }),
         supabase.from('incentive_rules').select('*').limit(1).maybeSingle(),
       ])
@@ -81,7 +81,6 @@ export default function WorkerIncentives() {
     exportXlsx({
       filename: `yas-my-incentive_${toISODate(new Date())}.xlsx`,
       sheetName: 'حوافزي',
-      title: 'كشف حوافزي',
       meta: [
         [`العامل: ${profile?.full_name ?? ''}`],
         [`سعر الوحدة: ${formatNumber(rate)} ${currency}`],
@@ -116,7 +115,7 @@ export default function WorkerIncentives() {
           <div>
             <h2 className="font-bold text-lg">حافزك المتوقّع</h2>
             <p className="text-xs text-slate-500 mt-1">
-              أهلاً {profile?.full_name}، ده حساب حافزك على الإدخالات <b>المُصدرة</b> من المشرف بس.
+              أهلاً {profile?.full_name}، ده حساب حافزك على الإدخالات <b>المعتمدة</b> من المشرف بس.
             </p>
             <p className="text-xs text-slate-500 mt-1">
               المعادلة: (مجموع عدد اللابات × وزن العملية) × سعر الوحدة ={' '}
@@ -156,7 +155,7 @@ export default function WorkerIncentives() {
               <tbody>
                 {byOperation.length === 0 && (
                   <tr>
-                    <td colSpan={4} className="text-center text-slate-400 py-6">مفيش إدخالات مُصدرة الشهر ده</td>
+                    <td colSpan={4} className="text-center text-slate-400 py-6">مفيش إدخالات معتمدة الشهر ده</td>
                   </tr>
                 )}
                 {byOperation.map((o) => (
@@ -174,7 +173,7 @@ export default function WorkerIncentives() {
 
         <div className="card">
           <h2 className="font-bold text-lg mb-3">
-            آخر الإدخالات المُصدرة{' '}
+            آخر الإدخالات المعتمدة{' '}
             <span className="text-sm font-normal text-slate-400">(إجمالي تراكمي: {formatNumber(stats.all.incentive)} {currency})</span>
           </h2>
           <div className="table-wrap">
@@ -197,7 +196,7 @@ export default function WorkerIncentives() {
                 )}
                 {!loading && entries.length === 0 && (
                   <tr>
-                    <td colSpan={6} className="text-center text-slate-400 py-6">مفيش إدخالات مُصدرة لسه</td>
+                    <td colSpan={6} className="text-center text-slate-400 py-6">مفيش إدخالات معتمدة لسه</td>
                   </tr>
                 )}
                 {entries.slice(0, 30).map((e) => {

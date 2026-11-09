@@ -83,7 +83,6 @@ export default function AuditLog() {
     exportXlsx({
       filename: `yas-audit_${from}_${to}.xlsx`,
       sheetName: 'سجل الأوديت',
-      title: 'سجل الأوديت',
       meta: [[`الفترة: ${from} ← ${to}`], [`عدد السجلات: ${filtered.length}`]],
       headers: ['التاريخ', 'المستخدم', 'الدور', 'الإجراء', 'الكيان', 'معرّف العنصر'],
       rows: filtered.map((r) => [
@@ -199,21 +198,110 @@ function AuditDetails({ row, onClose }) {
         <p className="text-sm text-slate-500 mb-4">
           {row.profiles?.full_name ?? '—'} · {new Date(row.created_at).toLocaleString('ar-EG')} · {row.entity ?? '—'}
         </p>
-        <div className="grid gap-4 md:grid-cols-2">
-          <div>
-            <p className="label">قبل</p>
-            <pre className="max-h-72 overflow-auto rounded-lg bg-slate-50 p-3 text-xs" dir="ltr">
-              {row.before ? JSON.stringify(row.before, null, 2) : '—'}
-            </pre>
-          </div>
-          <div>
-            <p className="label">بعد</p>
-            <pre className="max-h-72 overflow-auto rounded-lg bg-slate-50 p-3 text-xs" dir="ltr">
-              {row.after ? JSON.stringify(row.after, null, 2) : '—'}
-            </pre>
-          </div>
-        </div>
+        <DiffTable before={row.before} after={row.after} />
       </div>
+    </div>
+  )
+}
+
+// أسماء الحقول بالعربي
+const FIELD_LABELS = {
+  status: 'الحالة',
+  notes: 'الملاحظات',
+  quantity: 'العدد',
+  entry_date: 'تاريخ الإدخال',
+  operation_id: 'العملية',
+  stage_code: 'المرحلة',
+  created_at: 'تاريخ الإنشاء',
+  submitted_at: 'تاريخ التسليم',
+  reviewed_at: 'تاريخ المراجعة',
+  released_at: 'تاريخ الإصدار',
+  returned_at: 'تاريخ الإرجاع',
+  return_reason: 'سبب الإرجاع',
+  full_name: 'الاسم',
+  email: 'الإيميل',
+  role: 'الدور',
+  serial: 'السيريال',
+  current_status: 'الحالة الحالية',
+  current_stage: 'المرحلة الحالية',
+  amount: 'المبلغ',
+  reason: 'السبب',
+  decision: 'القرار',
+  period_start: 'بداية الفترة',
+  period_end: 'نهاية الفترة',
+  weight: 'الوزن',
+  unit_rate: 'سعر الوحدة',
+  currency: 'العملة',
+  notes_text: 'ملاحظات',
+}
+
+// قيم ثابتة بالعربي (حالات/أدوار)
+const VALUE_LABELS = {
+  draft: 'مسودّة',
+  submitted: 'مُسلَّم',
+  approved: 'معتمد',
+  released: 'مُصدر',
+  returned: 'مُرتجع',
+  pending: 'قيد المراجعة',
+  active: 'نشط',
+  inactive: 'موقوف',
+  rejected: 'مرفوض',
+  closed: 'مقفول',
+  open: 'مفتوح',
+  worker: 'عامل',
+  supervisor: 'مشرف',
+  accountant: 'حسابات',
+  management: 'إدارة',
+}
+
+// حقول معرّفات مش مفيدة في العرض
+const HIDDEN_FIELDS = new Set(['id', 'worker_id', 'laptop_id', 'created_by', 'released_by', 'returned_by', 'reviewed_by', 'actor_id'])
+
+function humanize(key, value) {
+  if (value === null || value === undefined || value === '') return '—'
+  if (key === 'status' || key === 'role' || key === 'current_status') return VALUE_LABELS[value] ?? String(value)
+  if (typeof value === 'boolean') return value ? 'نعم' : 'لا'
+  if (key.endsWith('_at') || key.endsWith('_date')) {
+    const d = new Date(value)
+    return isNaN(d) ? String(value) : d.toLocaleString('ar-EG')
+  }
+  if (typeof value === 'object') return JSON.stringify(value)
+  return String(value)
+}
+
+function DiffTable({ before, after }) {
+  const b = before ?? {}
+  const a = after ?? {}
+  const isUpdate = Boolean(before && after)
+  const keys = Array.from(new Set([...Object.keys(b), ...Object.keys(a)])).filter((k) => !HIDDEN_FIELDS.has(k))
+  const shown = (isUpdate ? keys.filter((k) => JSON.stringify(b[k]) !== JSON.stringify(a[k])) : keys).filter(
+    (k) => b[k] !== undefined || a[k] !== undefined
+  )
+
+  if (!shown.length) {
+    return <p className="rounded-lg bg-slate-50 p-3 text-sm text-slate-500">مفيش تفاصيل مسجّلة للإجراء ده.</p>
+  }
+
+  return (
+    <div className="table-wrap">
+      <table className="table">
+        <thead>
+          <tr>
+            <th>الحقل</th>
+            {isUpdate && <th>قبل</th>}
+            <th>بعد</th>
+          </tr>
+        </thead>
+        <tbody>
+          {shown.map((k) => (
+            <tr key={k}>
+              <td className="whitespace-nowrap text-slate-500">{FIELD_LABELS[k] ?? k}</td>
+              {isUpdate && <td className="text-red-600">{humanize(k, b[k])}</td>}
+              <td className="text-emerald-700">{humanize(k, a[k])}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   )
 }
