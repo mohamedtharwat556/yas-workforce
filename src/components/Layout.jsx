@@ -113,7 +113,7 @@ export default function Layout({ title, children }) {
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-3">
           <div className="flex min-w-0 items-center gap-2">
             <span className="whitespace-nowrap text-base font-bold text-white md:text-lg">YAS Workforce</span>
-            {title && <span className="hidden truncate text-sm text-blue-200 sm:inline">· {title}</span>}
+            {title && <span className="hidden truncate text-sm text-blue-200 md:inline">· {title}</span>}
           </div>
           <div className="flex shrink-0 items-center gap-3">
             <span className="hidden text-sm text-blue-100 md:inline">
@@ -178,20 +178,22 @@ export default function Layout({ title, children }) {
 
       {/* شريط التنقّل السفلي — للموبايل */}
       {items.length > 0 && (
-        <nav className="pb-safe fixed inset-x-0 bottom-0 z-40 border-t border-slate-200 bg-white md:hidden">
-          <div className="flex">
+        <nav className="pb-safe fixed inset-x-0 bottom-0 z-40 border-t border-slate-200 bg-white/95 backdrop-blur md:hidden">
+          <div className="no-scrollbar flex overflow-x-auto">
             {items.map((item) => {
               const active = location.pathname === item.to
               return (
                 <Link
                   key={item.to}
                   to={item.to}
-                  className={`flex flex-1 flex-col items-center gap-0.5 py-2 text-[11px] ${
+                  aria-current={active ? 'page' : undefined}
+                  className={`relative flex min-w-[4.5rem] flex-1 shrink-0 flex-col items-center gap-0.5 px-1 py-2 text-[11px] transition active:scale-95 ${
                     active ? 'font-semibold text-blue-700' : 'text-slate-500'
                   }`}
                 >
+                  {active && <span className="absolute inset-x-4 top-0 h-0.5 rounded-full bg-blue-700" />}
                   <Icon to={item.to} />
-                  <span>{item.short ?? item.label}</span>
+                  <span className="max-w-full truncate">{item.short ?? item.label}</span>
                 </Link>
               )
             })}

@@ -58,6 +58,12 @@ export default function EntryDetails({ entryId, onClose, onApprove }) {
     return () => window.removeEventListener('keydown', onKey)
   }, [onClose])
 
+  // نمنع تمرير الصفحة اللي ورا النافذة على الموبايل (سلاسة أكتر)
+  useEffect(() => {
+    document.body.classList.add('no-scroll')
+    return () => document.body.classList.remove('no-scroll')
+  }, [])
+
   const lines = entry ? entryLines(entry) : []
   const totalQty = lines.reduce((s, l) => s + l.quantity, 0)
 
@@ -69,7 +75,7 @@ export default function EntryDetails({ entryId, onClose, onApprove }) {
       aria-modal="true"
     >
       <div
-        className="card max-h-[92vh] w-full overflow-y-auto rounded-b-none rounded-t-2xl md:my-8 md:max-w-2xl md:rounded-xl"
+        className="card max-h-[92vh] w-full overflow-y-auto overscroll-contain rounded-b-none rounded-t-2xl md:my-8 md:max-w-2xl md:rounded-xl"
         onClick={(ev) => ev.stopPropagation()}
       >
         <div className="sticky -top-4 z-10 -mx-4 mb-4 flex items-center justify-between border-b border-slate-100 bg-white px-4 pt-4 md:static md:mx-0 md:border-0 md:px-0 md:pt-0">
@@ -94,7 +100,7 @@ export default function EntryDetails({ entryId, onClose, onApprove }) {
 
             <Section title={`العمليات (${lines.length})`}>
               <div className="table-wrap">
-                <table className="table">
+                <table className="table table-cards">
                   <thead>
                     <tr>
                       <th>العملية</th>
@@ -104,8 +110,8 @@ export default function EntryDetails({ entryId, onClose, onApprove }) {
                   <tbody>
                     {lines.map((l, i) => (
                       <tr key={`${l.operation_id}-${i}`}>
-                        <td>{l.name}</td>
-                        <td>{formatNumber(l.quantity)}</td>
+                        <td data-label="العملية">{l.name}</td>
+                        <td data-label="العدد">{formatNumber(l.quantity)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -118,7 +124,7 @@ export default function EntryDetails({ entryId, onClose, onApprove }) {
                 <p className="text-sm text-slate-400">مفيش لابات مسجّلة.</p>
               ) : (
                 <div className="table-wrap">
-                  <table className="table">
+                  <table className="table table-cards">
                     <thead>
                       <tr>
                         <th>نوع اللاب</th>
@@ -130,12 +136,12 @@ export default function EntryDetails({ entryId, onClose, onApprove }) {
                     <tbody>
                       {serials.map((s) => (
                         <tr key={s.serial}>
-                          <td>{s.laptop_type ?? '—'}</td>
-                          <td>{s.model ?? '—'}</td>
-                          <td className="font-mono" dir="ltr">
+                          <td data-label="نوع اللاب">{s.laptop_type ?? '—'}</td>
+                          <td data-label="الموديل">{s.model ?? '—'}</td>
+                          <td data-label="السيريال" className="font-mono" dir="ltr">
                             {s.serial}
                           </td>
-                          <td>
+                          <td data-label="الحالة">
                             {s.stage_code ? (
                               <span className="badge bg-red-100 text-red-700">
                                 {stageMap[s.stage_code] ?? s.stage_code}

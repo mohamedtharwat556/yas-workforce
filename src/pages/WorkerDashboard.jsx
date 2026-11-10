@@ -455,7 +455,7 @@ export default function WorkerDashboard() {
         <StatCard label="لابات الشهر" value={summary.month.laps} />
       </div>
 
-      <div className="flex gap-2 mb-4 overflow-x-auto -mx-1 px-1">
+      <div className="no-scrollbar -mx-1 mb-4 flex gap-2 overflow-x-auto px-1">
         <button
           onClick={() => {
             setTab('entry')
@@ -519,6 +519,8 @@ export default function WorkerDashboard() {
                       <input
                         type="number"
                         min="1"
+                        inputMode="numeric"
+                        enterKeyHint="done"
                         className="input !w-24"
                         placeholder="العدد"
                         value={line.quantity}
@@ -575,6 +577,11 @@ export default function WorkerDashboard() {
                               <input
                                 className="input flex-1 font-mono text-sm"
                                 dir="ltr"
+                                inputMode="text"
+                                autoCapitalize="characters"
+                                autoCorrect="off"
+                                spellCheck={false}
+                                enterKeyHint="next"
                                 placeholder={`سيريال ${i + 1}`}
                                 value={form.serials[idx] ?? ''}
                                 onChange={(e) => setSerial(idx, e.target.value)}
@@ -583,14 +590,14 @@ export default function WorkerDashboard() {
                                 <button
                                   type="button"
                                   onClick={() => setProblem(idx, false)}
-                                  className={`px-3 py-2 text-sm ${hasProblem ? 'bg-white text-slate-600' : 'bg-emerald-600 text-white'}`}
+                                  className={`tap flex-1 px-3 text-sm ${hasProblem ? 'bg-white text-slate-600' : 'bg-emerald-600 text-white'}`}
                                 >
                                   سليم
                                 </button>
                                 <button
                                   type="button"
                                   onClick={() => setProblem(idx, true)}
-                                  className={`px-3 py-2 text-sm ${hasProblem ? 'bg-red-600 text-white' : 'bg-white text-slate-600'}`}
+                                  className={`tap flex-1 px-3 text-sm ${hasProblem ? 'bg-red-600 text-white' : 'bg-white text-slate-600'}`}
                                 >
                                   فيه مشكلة
                                 </button>

@@ -4,10 +4,24 @@
 
 html {
   -webkit-text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
 }
 
 body {
   @apply bg-blue-50 text-slate-800;
+  -webkit-font-smoothing: antialiased;
+  overscroll-behavior-y: contain;
+}
+
+/* على الموبايل: إلغاء تأخير الدوس (300ms) ومنع التكبير بالدوس المزدوج */
+button,
+a,
+select,
+input,
+textarea,
+label,
+[role='button'] {
+  touch-action: manipulation;
 }
 
 /* مكوّنات مساعدة */
@@ -15,7 +29,7 @@ body {
   @apply bg-white rounded-xl shadow-sm border border-slate-200 p-4 md:p-5;
 }
 .btn {
-  @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 font-medium transition disabled:opacity-50 disabled:cursor-not-allowed select-none;
+  @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 font-medium transition active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed select-none;
   min-height: 2.6rem;
   padding-top: 0.5rem;
   padding-bottom: 0.5rem;
@@ -44,6 +58,12 @@ body {
 }
 .table-wrap {
   @apply overflow-x-auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+}
+/* زرار بمساحة دوس مريحة على الموبايل */
+.tap {
+  min-height: 2.75rem;
 }
 .table {
   @apply w-full text-right text-sm;
@@ -60,6 +80,10 @@ body {
 
 /* ===== الموبايل: الجداول تتحوّل لكروت مقروءة بدون سكرول أفقي ===== */
 @media (max-width: 767px) {
+  /* مساحة دوس مريحة (44px) لكل الأزرار على الموبايل */
+  .btn {
+    min-height: 2.75rem;
+  }
   .table-cards thead {
     display: none;
   }
@@ -114,4 +138,25 @@ body {
 /* منطقة الأمان أسفل الشاشة (iPhone notch) */
 .pb-safe {
   padding-bottom: calc(0.5rem + env(safe-area-inset-bottom));
+}
+
+/* سكرول أفقي ناعم من غير شريط ظاهر (للتابات وشريط التنقّل) */
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* قفل تمرير الخلفية لمّا نافذة تفاصيل الإدخال مفتوحة */
+body.no-scroll {
+  overflow: hidden;
+}
+
+/* على الموبايل: التاب والشرائط الأفقية تسحب باللمس بسلاسة */
+@media (max-width: 767px) {
+  .no-scrollbar {
+    -webkit-overflow-scrolling: touch;
+  }
 }
