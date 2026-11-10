@@ -36,9 +36,12 @@ async function edgeErrorMessage(error) {
   return error?.message || 'تعذّر تشغيل التحليل.'
 }
 
-function actionLabel(action) {
+function actionLabel(action, stageMap) {
   if (ACTION_LABELS[action]) return ACTION_LABELS[action]
-  if (action?.startsWith('advance_stage:')) return `نقل مرحلة: ${action.split(':')[1]}`
+  if (action?.startsWith('advance_stage:')) {
+    const code = action.split(':')[1]
+    return `نقل مرحلة: ${stageMap?.[code] ?? code}`
+  }
   return action ?? '-'
 }
 
@@ -396,7 +399,7 @@ export default function AuditLog() {
                     <span className="text-xs text-slate-400"> · {r.profiles?.role ?? '—'}</span>
                   </td>
                   <td data-label="الإجراء">
-                    <span className={`badge ${actionTone(r.action)}`}>{actionLabel(r.action)}</span>
+                    <span className={`badge ${actionTone(r.action)}`}>{actionLabel(r.action, stageMap)}</span>
                   </td>
                   <td data-label="الكيان" className="text-xs text-slate-500">{r.entity ?? '—'}</td>
                   <td data-label="إجراء" className="whitespace-nowrap">
@@ -450,14 +453,14 @@ function AuditDetails({ row, stageMap, onClose }) {
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-lg font-bold">{actionLabel(row.action)}</h2>
+          <h2 className="text-lg font-bold">{actionLabel(row.action, stageMap)}</h2>
           <button onClick={onClose} className="btn-ghost !px-3 !py-1 text-sm">إغلاق</button>
         </div>
         <p className="text-sm text-slate-500 mb-4">
           {row.profiles?.full_name ?? '—'} · {new Date(row.created_at).toLocaleString('ar-EG')} · {row.entity ?? '—'}
         </p>
         {isEntry && <EntryLaptops entryId={row.entity_id} after={row.after} stageMap={stageMap} />}
-        <DiffTable before={row.before} after={row.after} />
+        <DiffTable before={row.before} after={row.after} stageMap={stageMap} />
       </div>
     </div>
   )
@@ -576,8 +579,11 @@ const FIELD_LABELS = {
   email: 'الإيميل',
   role: 'الدور',
   serial: 'السيريال',
+  laptop_type: 'نوع اللاب',
+  model: 'الموديل',
   current_status: 'الحالة الحالية',
   current_stage: 'المرحلة الحالية',
+  approved_at: 'تاريخ الاعتماد',
   reason: 'السبب',
   decision: 'القرار',
   notes_text: 'ملاحظات',
@@ -601,14 +607,34 @@ const VALUE_LABELS = {
   worker: 'موظف',
   supervisor: 'مشرف',
   accountant: 'حسابات',
+  received: 'مُستلم',
+  in_progress: 'قيد التنفيذ',
+  awaiting_release: 'بانتظار الإصدار',
+  on_hold: 'موقوف مؤقتًا',
 }
 
-// حقول معرّفات مش مفيدة في العرض
-const HIDDEN_FIELDS = new Set(['id', 'worker_id', 'laptop_id', 'created_by', 'released_by', 'returned_by', 'reviewed_by', 'actor_id'])
+// حقول معرّفات/تقنية مش مفيدة في العرض
+const HIDDEN_FIELDS = new Set([
+  'id',
+  'worker_id',
+  'laptop_id',
+  'entry_id',
+  'operation_id',
+  'created_by',
+  'released_by',
+  'returned_by',
+  'reviewed_by',
+  'approved_by',
+  'actor_id',
+  'qr_token',
+  'created_at',
+  'updated_at',
+])
 
-function humanize(key, value) {
+function humanize(key, value, stageMap) {
   if (value === null || value === undefined || value === '') return '—'
   if (key === 'status' || key === 'role' || key === 'current_status') return VALUE_LABELS[value] ?? String(value)
+  if ((key === 'current_stage' || key === 'stage_code') && stageMap?.[value]) return stageMap[value]
   if (typeof value === 'boolean') return value ? 'نعم' : 'لا'
   if (key.endsWith('_at') || key.endsWith('_date')) {
     const d = new Date(value)
@@ -618,14 +644,15 @@ function humanize(key, value) {
   return String(value)
 }
 
-function DiffTable({ before, after }) {
+function DiffTable({ before, after, stageMap }) {
   const b = before ?? {}
   const a = after ?? {}
   const isUpdate = Boolean(before && after)
   const keys = Array.from(new Set([...Object.keys(b), ...Object.keys(a)])).filter((k) => !HIDDEN_FIELDS.has(k))
-  const shown = (isUpdate ? keys.filter((k) => JSON.stringify(b[k]) !== JSON.stringify(a[k])) : keys).filter(
-    (k) => b[k] !== undefined || a[k] !== undefined
-  )
+  const shown = (isUpdate ? keys.filter((k) => JSON.stringify(b[k]) !== JSON.stringify(a[k])) : keys)
+    .filter((k) => b[k] !== undefined || a[k] !== undefined)
+    // في الإجراءات اللي ملهاش «قبل» بنخفي القيم الفاضية عشان مانعرضش صفوف ملهاش قيمة
+    .filter((k) => isUpdate || (a[k] !== null && a[k] !== undefined && a[k] !== ''))
 
   if (!shown.length) {
     return <p className="rounded-lg bg-slate-50 p-3 text-sm text-slate-500">مفيش تفاصيل مسجّلة للإجراء ده.</p>
@@ -645,8 +672,8 @@ function DiffTable({ before, after }) {
           {shown.map((k) => (
             <tr key={k}>
               <td className="whitespace-nowrap text-slate-500">{FIELD_LABELS[k] ?? k}</td>
-              {isUpdate && <td className="text-red-600">{humanize(k, b[k])}</td>}
-              <td className="text-emerald-700">{humanize(k, a[k])}</td>
+              {isUpdate && <td className="text-red-600">{humanize(k, b[k], stageMap)}</td>}
+              <td className="text-emerald-700">{humanize(k, a[k], stageMap)}</td>
             </tr>
           ))}
         </tbody>
