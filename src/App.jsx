@@ -14,6 +14,7 @@ const SupervisorDashboard = lazy(() => import('./pages/SupervisorDashboard'))
 const AccountantDashboard = lazy(() => import('./pages/AccountantDashboard'))
 const EmployeeAccounts = lazy(() => import('./pages/EmployeeAccounts'))
 const Employees = lazy(() => import('./pages/Employees'))
+const StagesManage = lazy(() => import('./pages/StagesManage'))
 const ManagementDashboard = lazy(() => import('./pages/ManagementDashboard'))
 const AuditLog = lazy(() => import('./pages/AuditLog'))
 const ChangePassword = lazy(() => import('./pages/ChangePassword'))
@@ -101,7 +102,7 @@ export default function App() {
         <Route
           path="/supervisor/employees"
           element={
-            <ProtectedRoute roles={['supervisor']}>
+            <ProtectedRoute roles={['supervisor', 'accountant']}>
               <Employees />
             </ProtectedRoute>
           }
@@ -111,6 +112,14 @@ export default function App() {
           element={
             <ProtectedRoute roles={['accountant']}>
               <ManagementDashboard />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/supervisor/stages"
+          element={
+            <ProtectedRoute roles={['supervisor']}>
+              <StagesManage />
             </ProtectedRoute>
           }
         />

@@ -11,6 +11,8 @@ export default function Employees() {
   const [loading, setLoading] = useState(true)
   const [employeeId, setEmployeeId] = useState('')
   const [query, setQuery] = useState('')
+  const [from, setFrom] = useState('')
+  const [to, setTo] = useState('')
 
   async function loadAll() {
     setLoading(true)
@@ -33,10 +35,13 @@ export default function Employees() {
     loadAll()
   }, [])
 
-  // كل اللابات مع اسم الموظف اللي سجّلها
+  // كل اللابات مع اسم الموظف اللي سجّلها (محسوبة على الفترة المختارة لو اتحددت)
   const laptops = useMemo(() => {
     const rows = []
     for (const e of entries) {
+      const d = e.entry_date ?? ''
+      if (from && d < from) continue
+      if (to && d > to) continue
       for (const s of e.lap_serials ?? []) {
         rows.push({
           worker_id: e.worker_id,
@@ -52,22 +57,32 @@ export default function Employees() {
       }
     }
     return rows.sort((a, b) => (b.entry_date ?? '').localeCompare(a.entry_date ?? ''))
-  }, [entries])
+  }, [entries, from, to])
 
-  // إحصائيات كل موظف: عدد اللابات + سليم + تحت الصيانة + آخر إدخال
+  // إحصائيات كل موظف: عدد الإدخالات + عدد اللابات + سليم + تحت الصيانة + آخر إدخال
   const stats = useMemo(() => {
     const map = {}
-    for (const w of workers) map[w.id] = { worker: w, total: 0, healthy: 0, maintenance: 0, lastDate: null }
+    for (const w of workers) {
+      map[w.id] = { worker: w, entries: 0, total: 0, healthy: 0, maintenance: 0, lastDate: null }
+    }
+    for (const e of entries) {
+      const d = e.entry_date ?? ''
+      if (from && d < from) continue
+      if (to && d > to) continue
+      const st = map[e.worker_id]
+      if (!st) continue
+      st.entries += 1
+      if (e.entry_date && (!st.lastDate || e.entry_date > st.lastDate)) st.lastDate = e.entry_date
+    }
     for (const l of laptops) {
       const st = map[l.worker_id]
       if (!st) continue
       st.total += 1
       if (l.stage_code) st.maintenance += 1
       else st.healthy += 1
-      if (l.entry_date && (!st.lastDate || l.entry_date > st.lastDate)) st.lastDate = l.entry_date
     }
     return Object.values(map).sort((a, b) => b.total - a.total)
-  }, [workers, laptops])
+  }, [workers, entries, laptops, from, to])
 
   const q = query.trim().toLowerCase()
 
@@ -97,8 +112,12 @@ export default function Employees() {
   const totals = useMemo(
     () =>
       filteredStats.reduce(
-        (acc, s) => ({ total: acc.total + s.total, maintenance: acc.maintenance + s.maintenance }),
-        { total: 0, maintenance: 0 }
+        (acc, s) => ({
+          entries: acc.entries + s.entries,
+          total: acc.total + s.total,
+          maintenance: acc.maintenance + s.maintenance,
+        }),
+        { entries: 0, total: 0, maintenance: 0 }
       ),
     [filteredStats]
   )
@@ -109,18 +128,21 @@ export default function Employees() {
     return { text: 'سليم', cls: 'bg-emerald-100 text-emerald-700' }
   }
 
-  // تصدير Excel — بيصدّر الظاهر حاليًا (كل الموظفين أو موظف واحد مفلتر + نتيجة البحث)
+  // تصدير Excel — بيصدّر الظاهر حاليًا (كل الموظفين أو موظف واحد مفلتر + الفترة + نتيجة البحث)
   function exportExcel() {
-    const scope = employeeId ? workers.find((w) => w.id === employeeId)?.full_name ?? 'موظف' : 'كل الموظفين'
+    const who = employeeId ? workers.find((w) => w.id === employeeId)?.full_name ?? 'موظف' : 'كل الموظفين'
+    const range = from || to ? `${from || 'البداية'} → ${to || 'النهاردة'}` : 'كل الفترات'
+    const scope = `${who} — ${range}`
     exportXlsxSheets({
       filename: `yas-employees_${toISODate(new Date())}.xlsx`,
       sheets: [
         {
           sheetName: 'الموظفين',
           title: `تقرير الموظفين — ${scope}`,
-          headers: ['الموظف', 'عدد اللابات', 'سليم', 'تحت الصيانة', 'آخر إدخال'],
+          headers: ['الموظف', 'عدد الإدخالات', 'عدد اللابات', 'سليم', 'تحت الصيانة', 'آخر إدخال'],
           rows: filteredStats.map((s) => [
             s.worker.full_name ?? '-',
+            s.entries,
             s.total,
             s.healthy,
             s.maintenance,
@@ -147,8 +169,8 @@ export default function Employees() {
   return (
     <Layout title="الموظفين">
       <div className="card mb-4">
-        <div className="grid gap-3 md:grid-cols-4">
-          <div className="md:col-span-1">
+        <div className="grid gap-3 md:grid-cols-12">
+          <div className="md:col-span-3">
             <label className="label">الموظف</label>
             <select className="input" value={employeeId} onChange={(e) => setEmployeeId(e.target.value)}>
               <option value="">كل الموظفين</option>
@@ -159,7 +181,7 @@ export default function Employees() {
               ))}
             </select>
           </div>
-          <div className="md:col-span-2">
+          <div className="md:col-span-3">
             <label className="label">بحث</label>
             <input
               className="input"
@@ -168,7 +190,15 @@ export default function Employees() {
               placeholder="اسم الموظف أو سيريال اللاب"
             />
           </div>
-          <div className="md:col-span-1 flex items-end">
+          <div className="md:col-span-2">
+            <label className="label">من تاريخ</label>
+            <input type="date" className="input" value={from} onChange={(e) => setFrom(e.target.value)} />
+          </div>
+          <div className="md:col-span-2">
+            <label className="label">إلى تاريخ</label>
+            <input type="date" className="input" value={to} onChange={(e) => setTo(e.target.value)} />
+          </div>
+          <div className="md:col-span-2 flex items-end">
             <button onClick={exportExcel} disabled={filteredLaptops.length === 0} className="btn-accent w-full">
               تصدير Excel
             </button>
@@ -176,13 +206,21 @@ export default function Employees() {
         </div>
         <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-slate-500">
           <span className="badge bg-slate-100 text-slate-600">{filteredStats.length} موظف</span>
+          <span className="badge bg-slate-100 text-slate-600">{formatNumber(totals.entries)} إدخال</span>
           <span className="badge bg-slate-100 text-slate-600">{formatNumber(totals.total)} لاب</span>
           <span className="badge bg-amber-100 text-amber-800">{formatNumber(totals.maintenance)} تحت الصيانة</span>
-          {(employeeId || query) && (
+          {from || to ? (
+            <span className="badge bg-blue-100 text-blue-700">
+              {from || 'البداية'} → {to || 'النهاردة'}
+            </span>
+          ) : null}
+          {(employeeId || query || from || to) && (
             <button
               onClick={() => {
                 setEmployeeId('')
                 setQuery('')
+                setFrom('')
+                setTo('')
               }}
               className="btn-ghost !py-1 !px-2 text-xs"
             >
@@ -200,6 +238,7 @@ export default function Employees() {
             <thead>
               <tr>
                 <th>الموظف</th>
+                <th>عدد الإدخالات</th>
                 <th>عدد اللابات</th>
                 <th>سليم</th>
                 <th>تحت الصيانة</th>
@@ -209,14 +248,14 @@ export default function Employees() {
             <tbody>
               {loading && (
                 <tr>
-                  <td colSpan={5} className="text-center text-slate-400 py-6">
+                  <td colSpan={6} className="text-center text-slate-400 py-6">
                     جاري التحميل…
                   </td>
                 </tr>
               )}
               {!loading && filteredStats.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="text-center text-slate-400 py-6">
+                  <td colSpan={6} className="text-center text-slate-400 py-6">
                     مفيش موظفين مطابقين
                   </td>
                 </tr>
@@ -228,6 +267,7 @@ export default function Employees() {
                   onClick={() => setEmployeeId(employeeId === s.worker.id ? '' : s.worker.id)}
                 >
                   <td data-label="الموظف">{s.worker.full_name ?? '-'}</td>
+                  <td data-label="عدد الإدخالات">{formatNumber(s.entries)}</td>
                   <td data-label="عدد اللابات">{formatNumber(s.total)}</td>
                   <td data-label="سليم">{formatNumber(s.healthy)}</td>
                   <td data-label="تحت الصيانة">

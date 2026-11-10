@@ -432,6 +432,21 @@ export default function WorkerDashboard() {
     loadEntries()
   }
 
+  // اللاب لسه فيه مشكلة بعد الصيانة → يرجع للصيانة تاني ويتشال من طابور إعادة الاختبار
+  async function sendProblem(row) {
+    if (!window.confirm(`اللاب «${row.serial}» لسه فيه مشكلة؟ هيرجع للصيانة تاني.`)) return
+    setMsg(null)
+    setBusyId(row.serial_id)
+    const { error } = await supabase.rpc('fn_worker_retest_problem', { p_serial_id: row.serial_id })
+    setBusyId(null)
+    if (error) {
+      setMsg({ type: 'error', text: error.message })
+      return
+    }
+    setMsg({ type: 'ok', text: `تم إرجاع اللاب «${row.serial}» للصيانة تاني.` })
+    loadRetest()
+  }
+
   return (
     <Layout title="إنتاجي اليوم">
       <div className="grid gap-4 md:grid-cols-3 mb-6">
@@ -710,8 +725,14 @@ export default function WorkerDashboard() {
           </div>
           <p className="mb-3 rounded-lg bg-slate-50 p-3 text-xs text-slate-500">
             اللابات اللي المشرف خلّص صيانتها بترجع لك هنا تلقائيًا. لما تعمل لها تست جديد وتبقى سليمة دوس
-            «إرسال للمشرف (سليم)» وهترجع للمشرف على طول عشان يعتمدها.
+            «إرسال للمشرف (سليم)» وهترجع للمشرف على طول عشان يعتمدها، ولو لسه فيها مشكلة دوس «لسه فيه مشكلة» وترجع
+            للصيانة تاني.
           </p>
+          {msg && (
+            <div className={`mb-3 text-sm rounded-lg p-3 ${msg.type === 'error' ? 'bg-red-50 text-red-700' : 'bg-emerald-50 text-emerald-700'}`}>
+              {msg.text}
+            </div>
+          )}
           <div className="table-wrap">
             <table className="table table-cards">
               <thead>
@@ -721,13 +742,14 @@ export default function WorkerDashboard() {
                   <th>الموديل</th>
                   <th>آخر مشكلة</th>
                   <th>اتخلّصت الصيانة</th>
+                  <th>اللي خلّصها</th>
                   <th>إجراء</th>
                 </tr>
               </thead>
               <tbody>
                 {retest.length === 0 && (
                   <tr>
-                    <td colSpan={6} className="text-center text-slate-400 py-6">
+                    <td colSpan={7} className="text-center text-slate-400 py-6">
                       مفيش لابات في انتظار إعادة الاختبار
                     </td>
                   </tr>
@@ -743,14 +765,24 @@ export default function WorkerDashboard() {
                       </span>
                     </td>
                     <td data-label="اتخلّصت الصيانة">{r.done_at ? formatDate(r.done_at) : '-'}</td>
+                    <td data-label="اللي خلّصها">{r.done_by_name || '—'}</td>
                     <td data-label="إجراء">
-                      <button
-                        disabled={busyId === r.serial_id}
-                        onClick={() => sendRetest(r)}
-                        className="btn-accent !py-1 !px-3 text-sm"
-                      >
-                        {busyId === r.serial_id ? '…' : 'إرسال للمشرف (سليم)'}
-                      </button>
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          disabled={busyId === r.serial_id}
+                          onClick={() => sendRetest(r)}
+                          className="btn-accent !py-1 !px-3 text-sm"
+                        >
+                          {busyId === r.serial_id ? '…' : 'إرسال للمشرف (سليم)'}
+                        </button>
+                        <button
+                          disabled={busyId === r.serial_id}
+                          onClick={() => sendProblem(r)}
+                          className="btn-danger !py-1 !px-3 text-sm"
+                        >
+                          لسه فيه مشكلة
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
