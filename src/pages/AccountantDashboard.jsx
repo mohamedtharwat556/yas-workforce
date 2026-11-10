@@ -208,6 +208,22 @@ export default function AccountantDashboard() {
     return Array.from(map.values()).sort((a, b) => b.laps - a.laps)
   }, [filtered])
 
+  // الأساس اللي بُنت عليه كل التقارير: كل موظف × نوع التاست (العملية) × عدد اللابات
+  const byWorkerOperation = useMemo(() => {
+    const map = new Map()
+    for (const e of filtered) {
+      const name = e.profiles?.full_name ?? 'غير معروف'
+      for (const l of entryLines(e)) {
+        const key = `${name}||${l.name}`
+        if (!map.has(key)) map.set(key, { name, operation: l.name, laps: 0 })
+        map.get(key).laps += l.quantity
+      }
+    }
+    return Array.from(map.values()).sort(
+      (a, b) => a.name.localeCompare(b.name, 'ar') || b.laps - a.laps
+    )
+  }, [filtered])
+
   // الاتجاه اليومي
   const byDay = useMemo(() => {
     const map = new Map()
@@ -228,8 +244,8 @@ export default function AccountantDashboard() {
   )
 
   function exportCSV() {
-    const head = ['#', 'الموظف', 'عدد اللابات']
-    const body = rows.map((r, i) => [i + 1, r.name, r.laps])
+    const head = ['#', 'اسم الموظف', 'نوع التاست', 'عدد اللابات']
+    const body = byWorkerOperation.map((r, i) => [i + 1, r.name, r.operation, r.laps])
     const csv =
       '\uFEFF' +
       [head, ...body]
@@ -247,16 +263,16 @@ export default function AccountantDashboard() {
   }
 
   function exportExcel() {
-    const head = ['#', 'الموظف', 'عدد اللابات']
-    const body = rows.map((r, i) => [i + 1, r.name, r.laps])
+    // الأساس: كل موظف × نوع التاست × عدد اللابات — جدول بيانات خالص من غير عناوين
+    const head = ['#', 'اسم الموظف', 'نوع التاست', 'عدد اللابات']
+    const body = byWorkerOperation.map((r, i) => [i + 1, r.name, r.operation, r.laps])
     const opBody = byOperation.map((o) => [o.name, o.laps])
     exportXlsx({
       filename: `yas-report_${range.start}_${range.end}.xlsx`,
       sheetName: 'التقرير',
-      meta: [[`الفترة: ${range.start} ← ${range.end}`]],
       headers: head,
-      rows: [...body, [], ['التفصيل حسب نوع العملية'], ['العملية', 'لابات'], ...opBody],
-      footer: ['', 'الإجمالي', totals.laps],
+      rows: [...body, [], ['الإجمالي حسب نوع التاست', ''], ['نوع التاست', 'عدد اللابات'], ...opBody],
+      footer: ['', '', 'الإجمالي', totals.laps],
     })
   }
 
@@ -270,41 +286,38 @@ export default function AccountantDashboard() {
     })
   }
 
-  // شيت Excel: ورقة «ملخّص الموظفين» (إجمالي كل موظف) + ورقة «تفصيل الإدخالات»
+  // شيت Excel: جدول بيانات خالص — الأساس موظف × نوع التاست × عدد اللابات،
+  // + تفصيل الإدخالات، + تفصيل كل لاب. من غير أي عناوين أو نص زيادة.
   function exportAiExcel() {
     exportXlsxSheets({
       filename: `yas-ai-report_${range.start}_${range.end}.xlsx`,
       sheets: [
         {
           sheetName: 'ملخّص الموظفين',
-          title: 'ملخّص الموظفين — عدد اللابات',
-          meta: [[`الفترة: ${range.start} ← ${range.end}`]],
-          headers: ['#', 'اسم الموظف', 'عدد اللابات'],
-          rows: rows.map((r, i) => [i + 1, r.name, r.laps]),
-          footer: ['', 'الإجمالي', totals.laps],
+          headers: ['#', 'اسم الموظف', 'نوع التاست', 'عدد اللابات'],
+          rows: byWorkerOperation.map((r, i) => [i + 1, r.name, r.operation, r.laps]),
+          footer: ['', '', 'الإجمالي', totals.laps],
         },
         {
           sheetName: 'تفصيل الإدخالات',
-          title: 'تفصيل الإدخالات',
-          meta: [[`الفترة: ${range.start} ← ${range.end}`]],
-          headers: ['اسم الموظف', 'العملية', 'عدد اللابات'],
-          rows: filtered.map((e) => [
-            e.profiles?.full_name ?? 'غير معروف',
-            entryOperationNames(e),
-            entryTotalQty(e),
-          ]),
-          footer: ['الإجمالي', '', totals.laps],
+          headers: ['اسم الموظف', 'التاريخ', 'نوع التاست', 'عدد اللابات', 'ملاحظات'],
+          rows: filtered.flatMap((e) =>
+            entryLines(e).map((l) => [
+              e.profiles?.full_name ?? 'غير معروف',
+              e.entry_date,
+              l.name,
+              l.quantity,
+              e.notes ?? '',
+            ])
+          ),
         },
         {
           sheetName: 'تفصيل اللابات',
-          title: 'تفصيل اللابات (النوع والموديل والسيريال والحالة ونوع التاست)',
-          meta: [[`الفترة: ${range.start} ← ${range.end}`]],
-          headers: ['اسم الموظف', 'التاريخ', 'العملية', 'نوع اللاب', 'الموديل', 'السيريال', 'الحالة', 'نوع التاست'],
+          headers: ['اسم الموظف', 'التاريخ', 'نوع اللاب', 'الموديل', 'السيريال', 'الحالة', 'نوع التاست'],
           rows: filtered.flatMap((e) =>
             (e.lap_serials ?? []).map((s) => [
               e.profiles?.full_name ?? 'غير معروف',
               e.entry_date,
-              entryOperationNames(e),
               s.laptop_type ?? '—',
               s.model ?? '—',
               s.serial,
@@ -341,11 +354,18 @@ export default function AccountantDashboard() {
     setAiError('')
     setAi(null)
     try {
+      // بيانات كل موظف: إجمالي لاباته + تفصيل كل نوع تاست عمله (الأساس)
+      const workerStats = rows.map((r) => {
+        const ops = byWorkerOperation
+          .filter((w) => w.name === r.name)
+          .map((w) => ({ operation: w.operation, laps: w.laps }))
+        return { name: r.name, laps: r.laps, operations: ops }
+      })
       const { data, error } = await supabase.functions.invoke('ai-analysis', {
         body: {
           period: range,
           totals,
-          workers: rows.map((r) => ({ name: r.name, laps: r.laps })),
+          workers: workerStats,
           entries: filtered.map((e) => ({
             worker: e.profiles?.full_name,
             operation: entryLines(e)
