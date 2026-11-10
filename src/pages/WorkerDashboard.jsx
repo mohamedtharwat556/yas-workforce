@@ -15,6 +15,26 @@ import {
   toISODate,
 } from '../lib/dates'
 
+// أنواع اللابات المتاحة في القائمة المنسدلة
+export const LAPTOP_TYPES = [
+  'Dell',
+  'HP',
+  'Lenovo',
+  'Apple',
+  'Asus',
+  'Acer',
+  'Toshiba',
+  'Samsung',
+  'MSI',
+  'Fujitsu',
+  'Sony',
+  'Microsoft',
+  'Huawei',
+  'Xiaomi',
+  'Honor',
+  'تاني',
+]
+
 function emptyForm(overrides = {}) {
   return {
     // بنود الإدخال: كل بند = نوع عملية + عدد (ممكن يكونوا أكتر من واحد)
@@ -22,6 +42,9 @@ function emptyForm(overrides = {}) {
     entry_date: toISODate(new Date()),
     notes: '',
     serials: [],
+    // نوع اللاب وموديله (نفس ترتيب السيريالات)
+    types: [],
+    models: [],
     // وجهة كل لاب (نفس ترتيب السيريالات) — لو فيه مشكلة اللاب يروح فين
     destinations: [],
     // هل اللاب ده فيه مشكلة؟ (خانة اختيار في الواجهة بس — مش بتتخزّن)
@@ -154,6 +177,24 @@ export default function WorkerDashboard() {
     })
   }
 
+  function setType(idx, value) {
+    setForm((f) => {
+      const types = [...f.types]
+      while (types.length <= idx) types.push('')
+      types[idx] = value
+      return { ...f, types }
+    })
+  }
+
+  function setModel(idx, value) {
+    setForm((f) => {
+      const models = [...f.models]
+      while (models.length <= idx) models.push('')
+      models[idx] = value
+      return { ...f, models }
+    })
+  }
+
   function setDestination(idx, value) {
     setForm((f) => {
       const destinations = [...f.destinations]
@@ -215,15 +256,17 @@ export default function WorkerDashboard() {
       return setMsg({ type: 'error', text: 'اكتب عدد صحيح لكل عملية اخترتها.' })
     }
 
-    // اللابات في الإدخال: سيريال + حالته ووجهته (نفس الترتيب)
+    // اللابات في الإدخال: نوع + موديل + سيريال + حالته ووجهته (نفس الترتيب)
     const totalLaps = lines.reduce((s, l) => s + l.quantity, 0)
     const laptopRows = Array.from({ length: totalLaps }, (_, i) => ({
       serial: String(form.serials[i] ?? '').trim(),
+      laptop_type: form.types[i] ?? '',
+      model: String(form.models[i] ?? '').trim(),
       destination: form.destinations[i] ?? '',
       problem: Boolean(form.problems[i]),
     }))
-    if (laptopRows.some((r) => !r.serial && (r.destination || r.problem))) {
-      return setMsg({ type: 'error', text: 'حدّد سيريال اللاب الأول قبل ما تحدّد حالته.' })
+    if (laptopRows.some((r) => !r.laptop_type || !r.model || !r.serial)) {
+      return setMsg({ type: 'error', text: 'كمّل بيانات كل لاب: نوع اللاب والموديل والسيريال.' })
     }
     if (laptopRows.some((r) => r.problem && !r.destination)) {
       return setMsg({ type: 'error', text: 'اختار نوع المشكلة لكل لاب حدّدته «فيه مشكلة».' })
@@ -268,14 +311,17 @@ export default function WorkerDashboard() {
         .insert(lines.map((l) => ({ entry_id: entryId, operation_id: l.operation_id, quantity: l.quantity })))
       if (linesError) throw linesError
 
-      // السيريالات (خانة لكل لاب — اختياري)
-      const serialRows = laptopRows.filter((r) => r.serial)
-      if (serialRows.length) {
-        const { error } = await supabase
-          .from('lap_serials')
-          .insert(serialRows.map((r) => ({ entry_id: entryId, serial: r.serial })))
-        if (error) throw error
-      }
+      // اللابات (نوع + موديل + سيريال + وجهة اللاب)
+      const { error } = await supabase.from('lap_serials').insert(
+        laptopRows.map((r) => ({
+          entry_id: entryId,
+          serial: r.serial,
+          laptop_type: r.laptop_type,
+          model: r.model,
+          stage_code: r.destination || null,
+        }))
+      )
+      if (error) throw error
 
       // مسار اللاب: بنسجّل وجهة كل لاب (لو محدّد) في مسار اللاب فورًا
       for (const r of laptopRows) {
@@ -303,7 +349,7 @@ export default function WorkerDashboard() {
     const [serialsRes, linesRes] = await Promise.all([
       supabase
         .from('lap_serials')
-        .select('serial')
+        .select('serial, laptop_type, model, stage_code')
         .eq('entry_id', entry.id)
         .order('created_at'),
       supabase
@@ -311,31 +357,20 @@ export default function WorkerDashboard() {
         .select('operation_id, quantity')
         .eq('entry_id', entry.id),
     ])
-    const serialList = (serialsRes.data ?? []).map((s) => s.serial)
+    const serialRows = serialsRes.data ?? []
     const lines = (linesRes.data ?? []).length
       ? linesRes.data
       : [{ operation_id: entry.operation_id, quantity: entry.quantity }]
-
-    // نرجّع وجهة كل لاب من مسار اللاب الحالي (لو كانت وجهة)
-    let destMap = {}
-    if (serialList.length) {
-      const { data: laps } = await supabase
-        .from('laptops')
-        .select('serial, current_stage')
-        .in('serial', serialList)
-      const codes = new Set(destinations.map((d) => d.code))
-      destMap = Object.fromEntries(
-        (laps ?? []).filter((l) => codes.has(l.current_stage)).map((l) => [l.serial, l.current_stage])
-      )
-    }
 
     setForm({
       lines: lines.map((l) => ({ operation_id: String(l.operation_id), quantity: String(l.quantity) })),
       entry_date: entry.entry_date,
       notes: entry.notes ?? '',
-      serials: serialList,
-      destinations: serialList.map((s) => destMap[s] ?? ''),
-      problems: serialList.map((s) => Boolean(destMap[s])),
+      serials: serialRows.map((s) => s.serial),
+      types: serialRows.map((s) => s.laptop_type ?? ''),
+      models: serialRows.map((s) => s.model ?? ''),
+      destinations: serialRows.map((s) => s.stage_code ?? ''),
+      problems: serialRows.map((s) => Boolean(s.stage_code)),
     })
     setEditingId(entry.id)
     window.scrollTo({ top: 0, behavior: 'smooth' })
@@ -441,7 +476,7 @@ export default function WorkerDashboard() {
 
           {serialGroups.length > 0 && (
             <div>
-              <label className="label">سيريالات اللابات وحالتها (اختياري)</label>
+              <label className="label">بيانات اللابات (النوع والموديل والسيريال والحالة)</label>
               <div className="space-y-4">
                 {serialGroups.map((g) => (
                   <div key={g.key}>
@@ -452,6 +487,27 @@ export default function WorkerDashboard() {
                         const hasProblem = Boolean(form.problems[idx])
                         return (
                           <div key={i} className="space-y-2 rounded-lg border border-slate-200 p-2">
+                            <p className="text-xs text-slate-400">لاب {i + 1}</p>
+                            <div className="grid gap-2 sm:grid-cols-2">
+                              <select
+                                className="input"
+                                value={form.types[idx] ?? ''}
+                                onChange={(e) => setType(idx, e.target.value)}
+                              >
+                                <option value="">نوع اللاب…</option>
+                                {LAPTOP_TYPES.map((t) => (
+                                  <option key={t} value={t}>
+                                    {t}
+                                  </option>
+                                ))}
+                              </select>
+                              <input
+                                className="input"
+                                placeholder="الموديل"
+                                value={form.models[idx] ?? ''}
+                                onChange={(e) => setModel(idx, e.target.value)}
+                              />
+                            </div>
                             <div className="flex flex-col gap-2 sm:flex-row">
                               <input
                                 className="input flex-1 font-mono text-sm"
@@ -499,7 +555,8 @@ export default function WorkerDashboard() {
                 ))}
               </div>
               <p className="mt-1 text-xs text-slate-400">
-                حدّد حالة كل لاب: «سليم» (الافتراضي)، أو «فيه مشكلة» وتختار وجهته (صيانة الشاشات / ناقص قطع غيار /
+                لكل لاب: اختار نوع اللاب واكتب الموديل والسيريال، وبعدين حدّد حالته: «سليم» (الافتراضي)، أو «فيه مشكلة»
+                وتختار وجهته (صيانة الشاشات / ناقص قطع غيار /
                 الكسور / الرش / البطاريات / هالك) — وتتسجّل في مسار اللاب فورًا.
               </p>
             </div>

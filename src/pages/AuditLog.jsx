@@ -175,7 +175,7 @@ export default function AuditLog() {
       const { data, error } = await supabase
         .from('production_entries')
         .select(
-          'id, entry_date, quantity, status, stage_code, profiles!production_entries_worker_id_fkey(full_name), operations(name_ar), entry_operations(quantity, operations(name_ar)), lap_serials(serial)'
+          'id, entry_date, quantity, status, stage_code, profiles!production_entries_worker_id_fkey(full_name), operations(name_ar), entry_operations(quantity, operations(name_ar)), lap_serials(serial, laptop_type, model, stage_code)'
         )
         .in('status', ['approved', 'released'])
         .gte('entry_date', from)
@@ -192,13 +192,16 @@ export default function AuditLog() {
             ? e.entry_operations.map((l) => `${l.operations?.name_ar ?? '—'} (${l.quantity})`)
             : [`${e.operations?.name_ar ?? '—'} (${e.quantity})`]
         ).join(' · ')
-        const stage = e.stage_code ? (stageMap[e.stage_code] ?? e.stage_code) : 'سليم'
         const status = e.status === 'released' ? 'مُصدر' : 'معتمد'
-        const serials = (e.lap_serials ?? []).map((s) => s.serial)
+        const serials = e.lap_serials ?? []
         if (serials.length) {
-          for (const s of serials) out.push([s, e.entry_date, worker, ops, stage, status])
+          for (const s of serials) {
+            const dest = s.stage_code ? (stageMap[s.stage_code] ?? s.stage_code) : 'سليم'
+            out.push([s.serial, s.laptop_type ?? '—', s.model ?? '—', e.entry_date, worker, ops, dest, status])
+          }
         } else {
-          out.push(['—', e.entry_date, worker, ops, stage, status])
+          const stage = e.stage_code ? (stageMap[e.stage_code] ?? e.stage_code) : 'سليم'
+          out.push(['—', '—', '—', e.entry_date, worker, ops, stage, status])
         }
       }
 
@@ -211,7 +214,7 @@ export default function AuditLog() {
         filename: `yas-approved-laptops_${from}_${to}.xlsx`,
         sheetName: 'لابات معتمدة',
         meta: [[`الفترة: ${from} ← ${to}`], [`عدد الإدخالات: ${entries.length}`]],
-        headers: ['السيريال', 'التاريخ', 'الموظف', 'العملية', 'الوجهة', 'الحالة'],
+        headers: ['السيريال', 'نوع اللاب', 'الموديل', 'التاريخ', 'الموظف', 'العملية', 'الوجهة', 'الحالة'],
         rows: out,
       })
     } catch (err) {
@@ -481,11 +484,15 @@ function EntryLaptops({ entryId, after, stageMap }) {
           )
           .eq('id', entryId)
           .maybeSingle(),
-        supabase.from('lap_serials').select('serial').eq('entry_id', entryId).order('created_at'),
+        supabase
+          .from('lap_serials')
+          .select('serial, laptop_type, model, stage_code')
+          .eq('entry_id', entryId)
+          .order('created_at'),
       ])
       if (!active) return
       setEntry(entryRes.data ?? null)
-      setSerials((serialsRes.data ?? []).map((s) => s.serial))
+      setSerials(serialsRes.data ?? [])
       setLoading(false)
     }
     load()
@@ -524,15 +531,26 @@ function EntryLaptops({ entryId, after, stageMap }) {
           <p className="mb-2 text-xs text-slate-600">العمليات: {ops}</p>
           {info.notes ? <p className="mb-2 text-xs text-slate-600">ملاحظات: {info.notes}</p> : null}
           {serials.length ? (
-            <div className="flex flex-wrap gap-2">
+            <div className="space-y-1">
               {serials.map((s) => (
-                <span key={s} dir="ltr" className="rounded bg-white px-2 py-1 font-mono text-xs">
-                  {s}
-                </span>
+                <div key={s.serial} className="flex flex-wrap items-center gap-2 text-xs">
+                  <span className="font-semibold text-slate-700">{s.laptop_type ?? '—'}</span>
+                  <span className="text-slate-500">{s.model ?? '—'}</span>
+                  <span dir="ltr" className="rounded bg-white px-2 py-1 font-mono text-xs">
+                    {s.serial}
+                  </span>
+                  {s.stage_code ? (
+                    <span className="badge bg-red-100 text-red-700">
+                      {stageMap?.[s.stage_code] ?? s.stage_code}
+                    </span>
+                  ) : (
+                    <span className="badge bg-emerald-100 text-emerald-800">سليم</span>
+                  )}
+                </div>
               ))}
             </div>
           ) : (
-            <p className="text-xs text-slate-400">مفيش سيريالات مسجّلة للإدخال ده.</p>
+            <p className="text-xs text-slate-400">مفيش لابات مسجّلة للإدخال ده.</p>
           )}
         </>
       )}

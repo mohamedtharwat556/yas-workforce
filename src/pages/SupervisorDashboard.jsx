@@ -5,7 +5,7 @@ import EntryDetails from '../components/EntryDetails'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
 import { formatDate, formatNumber, toISODate, entryOperationNames, entryTotalQty } from '../lib/dates'
-import { exportXlsx } from '../lib/xlsx'
+import { exportXlsx, exportXlsxSheets } from '../lib/xlsx'
 
 const TABS = [
   { key: 'release', label: 'إدخالات للمراجعة' },
@@ -19,6 +19,7 @@ export default function SupervisorDashboard() {
   const [tab, setTab] = useState('release')
   const [entries, setEntries] = useState([])
   const [users, setUsers] = useState([])
+  const [stageMap, setStageMap] = useState({})
   const [busyId, setBusyId] = useState(null)
   const [msg, setMsg] = useState(null)
   const [detailId, setDetailId] = useState(null)
@@ -26,16 +27,18 @@ export default function SupervisorDashboard() {
   const [reason, setReason] = useState('')
 
   async function loadAll() {
-    const [e, u] = await Promise.all([
+    const [e, u, st] = await Promise.all([
       supabase
         .from('production_entries')
-        .select('*, profiles!production_entries_worker_id_fkey(full_name), operations(name_ar), entry_operations(operation_id, quantity, operations(name_ar))')
+        .select('*, profiles!production_entries_worker_id_fkey(full_name), operations(name_ar), entry_operations(operation_id, quantity, operations(name_ar)), lap_serials(serial, laptop_type, model, stage_code)')
         .in('status', ['draft', 'submitted'])
         .order('created_at', { ascending: false }),
       supabase.from('profiles').select('*').order('created_at', { ascending: false }),
+      supabase.from('stages').select('code, name_ar'),
     ])
     setEntries(e.data ?? [])
     setUsers(u.data ?? [])
+    setStageMap(Object.fromEntries((st.data ?? []).map((s) => [s.code, s.name_ar])))
   }
 
   useEffect(() => {
@@ -73,18 +76,39 @@ export default function SupervisorDashboard() {
   }
 
   function exportPendingEntries() {
-    exportXlsx({
-      filename: `yas-pending-entries_${toISODate(new Date())}.xlsx`,
-      sheetName: 'إدخالات للمراجعة',
-      headers: ['الموظف', 'التاريخ', 'العملية', 'العدد', 'الملاحظة', 'الحالة'],
-      rows: entries.map((e) => [
+    // ورقة الإدخالات (لكل إدخال) + ورقة تفصيل اللابات (لكل لاب: النوع/الموديل/السيريال/الحالة)
+    const laptopRows = entries.flatMap((e) =>
+      (e.lap_serials ?? []).map((s) => [
         e.profiles?.full_name ?? '-',
         e.entry_date,
         entryOperationNames(e),
-        entryTotalQty(e),
-        e.notes ?? '',
-        e.status,
-      ]),
+        s.laptop_type ?? '—',
+        s.model ?? '—',
+        s.serial,
+        s.stage_code ? (stageMap[s.stage_code] ?? s.stage_code) : 'سليم',
+      ])
+    )
+    exportXlsxSheets({
+      filename: `yas-pending-entries_${toISODate(new Date())}.xlsx`,
+      sheets: [
+        {
+          sheetName: 'إدخالات للمراجعة',
+          headers: ['الموظف', 'التاريخ', 'العملية', 'العدد', 'الملاحظة', 'الحالة'],
+          rows: entries.map((e) => [
+            e.profiles?.full_name ?? '-',
+            e.entry_date,
+            entryOperationNames(e),
+            entryTotalQty(e),
+            e.notes ?? '',
+            e.status,
+          ]),
+        },
+        {
+          sheetName: 'تفصيل اللابات',
+          headers: ['الموظف', 'التاريخ', 'العملية', 'نوع اللاب', 'الموديل', 'السيريال', 'الحالة'],
+          rows: laptopRows,
+        },
+      ],
     })
   }
 

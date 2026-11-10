@@ -45,6 +45,9 @@ create table if not exists public.lap_serials (
   id uuid primary key default gen_random_uuid(),
   entry_id uuid not null references public.production_entries(id) on delete cascade,
   serial text not null,
+  laptop_type text,
+  model text,
+  stage_code text,
   direction text not null default 'out' check (direction in ('in','out')),
   created_at timestamptz not null default now()
 );

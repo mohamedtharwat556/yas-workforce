@@ -7,6 +7,7 @@ import { formatDate, formatNumber, entryLines, entryOperationNames } from '../li
 export default function EntryDetails({ entryId, onClose, onApprove }) {
   const [entry, setEntry] = useState(null)
   const [serials, setSerials] = useState([])
+  const [stageMap, setStageMap] = useState({})
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
@@ -15,7 +16,7 @@ export default function EntryDetails({ entryId, onClose, onApprove }) {
     async function load() {
       setLoading(true)
       setError('')
-      const [e, s] = await Promise.all([
+      const [e, s, st] = await Promise.all([
         supabase
           .from('production_entries')
           .select(
@@ -23,7 +24,12 @@ export default function EntryDetails({ entryId, onClose, onApprove }) {
           )
           .eq('id', entryId)
           .single(),
-        supabase.from('lap_serials').select('serial').eq('entry_id', entryId).order('created_at'),
+        supabase
+          .from('lap_serials')
+          .select('serial, laptop_type, model, stage_code')
+          .eq('entry_id', entryId)
+          .order('created_at'),
+        supabase.from('stages').select('code, name_ar'),
       ])
       if (!active) return
 
@@ -35,6 +41,7 @@ export default function EntryDetails({ entryId, onClose, onApprove }) {
 
       setEntry(e.data)
       setSerials(s.data ?? [])
+      setStageMap(Object.fromEntries((st.data ?? []).map((x) => [x.code, x.name_ar])))
       setLoading(false)
     }
     load()
@@ -106,20 +113,41 @@ export default function EntryDetails({ entryId, onClose, onApprove }) {
               </div>
             </Section>
 
-            <Section title={`السيريالات (${serials.length})`}>
+            <Section title={`اللابات (${serials.length})`}>
               {serials.length === 0 ? (
-                <p className="text-sm text-slate-400">مفيش سيريالات مسجّلة.</p>
+                <p className="text-sm text-slate-400">مفيش لابات مسجّلة.</p>
               ) : (
-                <div className="flex flex-wrap gap-2">
-                  {serials.map((s) => (
-                    <span
-                      key={s.serial}
-                      className="badge bg-slate-100 font-mono text-slate-700"
-                      dir="ltr"
-                    >
-                      {s.serial}
-                    </span>
-                  ))}
+                <div className="table-wrap">
+                  <table className="table">
+                    <thead>
+                      <tr>
+                        <th>نوع اللاب</th>
+                        <th>الموديل</th>
+                        <th>السيريال</th>
+                        <th>الحالة</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {serials.map((s) => (
+                        <tr key={s.serial}>
+                          <td>{s.laptop_type ?? '—'}</td>
+                          <td>{s.model ?? '—'}</td>
+                          <td className="font-mono" dir="ltr">
+                            {s.serial}
+                          </td>
+                          <td>
+                            {s.stage_code ? (
+                              <span className="badge bg-red-100 text-red-700">
+                                {stageMap[s.stage_code] ?? s.stage_code}
+                              </span>
+                            ) : (
+                              <span className="badge bg-emerald-100 text-emerald-800">سليم</span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
               )}
             </Section>

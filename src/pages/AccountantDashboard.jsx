@@ -54,6 +54,7 @@ export default function AccountantDashboard() {
   // نظرة عامة
   const [overview, setOverview] = useState(null)
   const [activeWorkers, setActiveWorkers] = useState(0)
+  const [stageMap, setStageMap] = useState({})
 
   const range = useMemo(() => {
     if (period === 'week') return { start: toISODate(startOfWeek()), end: toISODate(new Date()) }
@@ -68,7 +69,7 @@ export default function AccountantDashboard() {
       const weekStart = startOfWeek()
       const monthStart = startOfMonth()
       const from = weekStart < monthStart ? weekStart : monthStart
-      const [o, cnt, e] = await Promise.all([
+      const [o, cnt, e, st] = await Promise.all([
         supabase.from('operations').select('*').order('sort_order'),
         supabase.from('profiles').select('id', { count: 'exact', head: true }).eq('status', 'active'),
         supabase
@@ -76,10 +77,12 @@ export default function AccountantDashboard() {
           .select('entry_date, quantity, operations(name_ar), entry_operations(quantity, operations(name_ar))')
           .in('status', ['approved', 'released'])
           .gte('entry_date', toISODate(from)),
+        supabase.from('stages').select('code, name_ar'),
       ])
       if (!active) return
       setOperations(o.data ?? [])
       setActiveWorkers(cnt.count ?? 0)
+      setStageMap(Object.fromEntries((st.data ?? []).map((s) => [s.code, s.name_ar])))
 
       const list = e.data ?? []
       const today = toISODate(new Date())
@@ -106,7 +109,7 @@ export default function AccountantDashboard() {
   useEffect(() => {
     let active = true
     const ENTRY_SELECT =
-      '*, profiles!production_entries_worker_id_fkey(full_name), operations(name_ar), entry_operations(operation_id, quantity, operations(name_ar))'
+      '*, profiles!production_entries_worker_id_fkey(full_name), operations(name_ar), entry_operations(operation_id, quantity, operations(name_ar)), lap_serials(serial, laptop_type, model, stage_code)'
     async function load() {
       setLoading(true)
       const [e, ar] = await Promise.all([
@@ -291,6 +294,23 @@ export default function AccountantDashboard() {
             entryTotalQty(e),
           ]),
           footer: ['الإجمالي', '', totals.laps],
+        },
+        {
+          sheetName: 'تفصيل اللابات',
+          title: 'تفصيل اللابات (النوع والموديل والسيريال والحالة)',
+          meta: [[`الفترة: ${range.start} ← ${range.end}`]],
+          headers: ['اسم الموظف', 'التاريخ', 'العملية', 'نوع اللاب', 'الموديل', 'السيريال', 'الحالة'],
+          rows: filtered.flatMap((e) =>
+            (e.lap_serials ?? []).map((s) => [
+              e.profiles?.full_name ?? 'غير معروف',
+              e.entry_date,
+              entryOperationNames(e),
+              s.laptop_type ?? '—',
+              s.model ?? '—',
+              s.serial,
+              s.stage_code ? (stageMap[s.stage_code] ?? s.stage_code) : 'سليم',
+            ])
+          ),
         },
       ],
     })
