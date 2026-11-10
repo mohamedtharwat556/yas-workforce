@@ -22,6 +22,20 @@ const ACTION_LABELS = {
   add_adjustment: 'إضافة تسوية',
 }
 
+// نستخرج رسالة الخطأ الحقيقية من رد دالة الحافة (edge function)
+async function edgeErrorMessage(error) {
+  try {
+    const res = error?.context
+    if (res && typeof res.clone === 'function') {
+      const body = await res.clone().json()
+      if (body?.error) return body.error
+    }
+  } catch {
+    /* نتجاهل ونجرّب الرسالة الافتراضية */
+  }
+  return error?.message || 'تعذّر تشغيل التحليل.'
+}
+
 function actionLabel(action) {
   if (ACTION_LABELS[action]) return ACTION_LABELS[action]
   if (action?.startsWith('advance_stage:')) return `نقل مرحلة: ${action.split(':')[1]}`
@@ -59,6 +73,10 @@ export default function AuditLog() {
   const [exporting, setExporting] = useState(false)
   const [reloadKey, setReloadKey] = useState(0)
   const [stageMap, setStageMap] = useState({})
+  const [ai, setAi] = useState(null)
+  const [aiBusy, setAiBusy] = useState(false)
+  const [aiError, setAiError] = useState('')
+  const [topWorker, setTopWorker] = useState(null)
 
   useEffect(() => {
     supabase
@@ -203,6 +221,61 @@ export default function AuditLog() {
     }
   }
 
+  // تحليل بالذكاء الاصطناعي: ترتيب الموظفين حسب عدد اللابات المعتمدة في الفترة
+  async function runAI() {
+    setAiBusy(true)
+    setAiError('')
+    setAi(null)
+    setTopWorker(null)
+    try {
+      const { data, error } = await supabase
+        .from('production_entries')
+        .select(
+          'id, entry_date, quantity, notes, profiles!production_entries_worker_id_fkey(full_name), operations(name_ar), entry_operations(quantity, operations(name_ar))'
+        )
+        .in('status', ['approved', 'released'])
+        .gte('entry_date', from)
+        .lte('entry_date', to)
+      if (error) throw error
+
+      const byWorker = new Map()
+      const notes = []
+      let total = 0
+      for (const e of data ?? []) {
+        const laps = e.entry_operations?.length
+          ? e.entry_operations.reduce((s, l) => s + (l.quantity ?? 0), 0)
+          : e.quantity ?? 0
+        total += laps
+        const name = e.profiles?.full_name ?? 'غير معروف'
+        byWorker.set(name, (byWorker.get(name) ?? 0) + laps)
+        if (e.notes) notes.push({ worker: name, operation: e.operations?.name_ar ?? '', notes: e.notes })
+      }
+      const workers = [...byWorker.entries()]
+        .map(([name, laps]) => ({ name, laps, units: laps }))
+        .sort((a, b) => b.laps - a.laps)
+
+      if (!workers.length) throw new Error('مفيش لابات معتمدة في الفترة دي للتحليل.')
+
+      const { data: res, error: fnErr } = await supabase.functions.invoke('ai-analysis', {
+        body: {
+          period: { start: from, end: to },
+          totals: { laps: total, units: total },
+          workers,
+          entries: notes,
+        },
+      })
+      if (fnErr) throw new Error(await edgeErrorMessage(fnErr))
+      if (res?.error) throw new Error(res.error)
+
+      setTopWorker(workers[0])
+      setAi(res)
+    } catch (err) {
+      setAiError(err.message || 'تعذّر تشغيل التحليل. تأكد من نشر دالة ai-analysis.')
+    } finally {
+      setAiBusy(false)
+    }
+  }
+
   return (
     <Layout title="سجل الأوديت">
       <div className="card mb-6 flex flex-wrap items-end gap-3">
@@ -234,6 +307,9 @@ export default function AuditLog() {
           </button>
         </div>
         <div className="flex-1" />
+        <button onClick={runAI} disabled={aiBusy} className="btn-primary">
+          {aiBusy ? 'جاري التحليل…' : 'تحليل AI'}
+        </button>
         <button onClick={exportApprovedLaptops} disabled={exporting} className="btn-ghost">
           {exporting ? 'جاري التصدير…' : 'لابات معتمدة (Excel)'}
         </button>
@@ -246,6 +322,42 @@ export default function AuditLog() {
           </button>
         )}
       </div>
+
+      {(ai || aiError || aiBusy) && (
+        <div className={`card mb-6 ${aiError ? 'border-red-200 bg-red-50' : ''}`}>
+          <div className="mb-2 flex items-center justify-between">
+            <h2 className="font-bold text-lg">تحليل الذكاء الاصطناعي</h2>
+            {!aiBusy && (
+              <button
+                onClick={() => {
+                  setAi(null)
+                  setAiError('')
+                  setTopWorker(null)
+                }}
+                className="btn-ghost !px-2 !py-1 text-xs"
+              >
+                إغلاق
+              </button>
+            )}
+          </div>
+          {aiBusy ? (
+            <p className="text-sm text-slate-400">جاري التحليل…</p>
+          ) : aiError ? (
+            <p className="text-sm text-red-700">{aiError}</p>
+          ) : (
+            <>
+              {topWorker && (
+                <p className="mb-2 text-sm text-slate-700">
+                  أعلى موظف في الفترة ({from} ← {to}):{' '}
+                  <span className="font-semibold text-slate-900">{topWorker.name}</span> —{' '}
+                  {topWorker.laps} لاب
+                </p>
+              )}
+              <div className="text-sm leading-7 whitespace-pre-wrap text-slate-700">{ai.summary}</div>
+            </>
+          )}
+        </div>
+      )}
 
       <div className="card">
         <h2 className="font-bold text-lg mb-3">
