@@ -50,9 +50,12 @@ export default function SupervisorDashboard() {
     loadAll()
   }, [])
 
-  // عدد اللابات اللي تحت الصيانة جوه الإدخال (اللاب اللي وجهته محددة = تحت الصيانة)
-  function maintenanceCount(entry) {
-    return (entry.lap_serials ?? []).filter((s) => s.stage_code).length
+  // عدد اللابات السليمة في الإدخال (اللي مش تحت الصيانة) — دي اللي بتتعرض للمشرف.
+  // الإدخال القديم اللي مفيش فيه لابات مسجّلة بنحسب عليه عدد العمليات.
+  function healthyCount(entry) {
+    const serials = entry.lap_serials ?? []
+    if (!serials.length) return entryTotalQty(entry)
+    return serials.filter((s) => !s.stage_code).length
   }
 
   // «صفحة الاعتماد» بيوصلها اللابات السليمة بس:
@@ -133,7 +136,7 @@ export default function SupervisorDashboard() {
             e.profiles?.full_name ?? '-',
             e.entry_date,
             entryOperationNames(e),
-            entryTotalQty(e),
+            healthyCount(e),
             e.notes ?? '',
             e.status,
           ]),
@@ -235,12 +238,7 @@ export default function SupervisorDashboard() {
                     <td data-label="الموظف">{e.profiles?.full_name ?? '-'}</td>
                     <td data-label="التاريخ">{formatDate(e.entry_date)}</td>
                     <td data-label="العملية">{entryOperationNames(e)}</td>
-                    <td data-label="العدد">
-                      {formatNumber(entryTotalQty(e))}
-                      {maintenanceCount(e) > 0 && (
-                        <span className="badge bg-orange-100 text-orange-700 mr-2">تحت الصيانة {maintenanceCount(e)}</span>
-                      )}
-                    </td>
+                    <td data-label="العدد">{formatNumber(healthyCount(e))}</td>
                     <td data-label="الملاحظة" className="max-w-[220px] truncate" title={e.notes ?? ''}>{e.notes || '-'}</td>
                     <td data-label="إجراء" onClick={(ev) => ev.stopPropagation()}>
                       <div className="flex gap-2">
