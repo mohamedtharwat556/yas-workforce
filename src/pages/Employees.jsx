@@ -26,7 +26,7 @@ export default function Employees() {
           supabase
             .from('production_entries')
             .select(
-              'id, worker_id, entry_date, status, profiles!production_entries_worker_id_fkey(full_name), lap_serials(serial, laptop_type, model, stage_code, maintenance_status)'
+              'id, worker_id, entry_date, status, profiles!production_entries_worker_id_fkey(full_name), lap_serials(serial, laptop_type, model, stage_code, operation_id, operations(name_ar), maintenance_status)'
             )
             .order('entry_date', { ascending: false })
             .order('id')
@@ -65,6 +65,7 @@ export default function Employees() {
           model: s.model,
           stage_code: s.stage_code,
           maintenance_status: s.maintenance_status,
+          test_type: s.operations?.name_ar ?? '',
         })
       }
     }
@@ -161,13 +162,14 @@ export default function Employees() {
         {
           sheetName: 'اللابات',
           title: `لابات الموظفين — ${scope}`,
-          headers: ['الموظف', 'السيريال', 'نوع اللاب', 'الموديل', 'الحالة', 'التاريخ'],
+          headers: ['الموظف', 'السيريال', 'نوع اللاب', 'الموديل', 'الحالة', 'نوع التاست', 'التاريخ'],
           rows: filteredLaptops.map((l) => [
             l.worker_name,
             l.serial,
             l.laptop_type ?? '—',
             l.model ?? '—',
             statusLabel(l).text,
+            l.test_type || '—',
             l.entry_date ?? '-',
           ]),
         },
@@ -311,13 +313,14 @@ export default function Employees() {
                 <th>نوع اللاب</th>
                 <th>الموديل</th>
                 <th>الحالة</th>
+                <th>نوع التاست</th>
                 <th>التاريخ</th>
               </tr>
             </thead>
             <tbody>
               {filteredLaptops.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="text-center text-slate-400 py-6">
+                  <td colSpan={7} className="text-center text-slate-400 py-6">
                     مفيش لابات مطابقة
                   </td>
                 </tr>
@@ -335,6 +338,7 @@ export default function Employees() {
                     <td data-label="الحالة">
                       <span className={`badge ${st.cls}`}>{st.text}</span>
                     </td>
+                    <td data-label="نوع التاست">{l.test_type || '—'}</td>
                     <td data-label="التاريخ">{l.entry_date ? formatDate(l.entry_date) : '-'}</td>
                   </tr>
                 )

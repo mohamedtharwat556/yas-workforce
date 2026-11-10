@@ -26,7 +26,7 @@ export default function EntryDetails({ entryId, onClose, onApprove }) {
           .single(),
         supabase
           .from('lap_serials')
-          .select('serial, laptop_type, model, stage_code')
+          .select('serial, laptop_type, model, stage_code, operation_id, operations(name_ar)')
           .eq('entry_id', entryId)
           .order('created_at'),
         supabase.from('stages').select('code, name_ar'),
@@ -131,6 +131,7 @@ export default function EntryDetails({ entryId, onClose, onApprove }) {
                         <th>الموديل</th>
                         <th>السيريال</th>
                         <th>الحالة</th>
+                        <th>نوع التاست</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -150,6 +151,7 @@ export default function EntryDetails({ entryId, onClose, onApprove }) {
                               <span className="badge bg-emerald-100 text-emerald-800">سليم</span>
                             )}
                           </td>
+                          <td data-label="نوع التاست">{s.operations?.name_ar ?? '—'}</td>
                         </tr>
                       ))}
                     </tbody>

@@ -178,7 +178,7 @@ export default function AuditLog() {
       const { data, error } = await supabase
         .from('production_entries')
         .select(
-          'id, entry_date, quantity, status, stage_code, profiles!production_entries_worker_id_fkey(full_name), operations(name_ar), entry_operations(quantity, operations(name_ar)), lap_serials(serial, laptop_type, model, stage_code)'
+          'id, entry_date, quantity, status, stage_code, profiles!production_entries_worker_id_fkey(full_name), operations(name_ar), entry_operations(quantity, operations(name_ar)), lap_serials(serial, laptop_type, model, stage_code, operation_id, operations(name_ar))'
         )
         .in('status', ['approved', 'released'])
         .gte('entry_date', from)
@@ -200,11 +200,11 @@ export default function AuditLog() {
         if (serials.length) {
           for (const s of serials) {
             const dest = s.stage_code ? (stageMap[s.stage_code] ?? s.stage_code) : 'سليم'
-            out.push([s.serial, s.laptop_type ?? '—', s.model ?? '—', e.entry_date, worker, ops, dest, status])
+            out.push([s.serial, s.laptop_type ?? '—', s.model ?? '—', e.entry_date, worker, ops, dest, status, s.operations?.name_ar ?? '—'])
           }
         } else {
           const stage = e.stage_code ? (stageMap[e.stage_code] ?? e.stage_code) : 'سليم'
-          out.push(['—', '—', '—', e.entry_date, worker, ops, stage, status])
+          out.push(['—', '—', '—', e.entry_date, worker, ops, stage, status, '—'])
         }
       }
 
@@ -217,7 +217,7 @@ export default function AuditLog() {
         filename: `yas-approved-laptops_${from}_${to}.xlsx`,
         sheetName: 'لابات معتمدة',
         meta: [[`الفترة: ${from} ← ${to}`], [`عدد الإدخالات: ${entries.length}`]],
-        headers: ['السيريال', 'نوع اللاب', 'الموديل', 'التاريخ', 'الموظف', 'العملية', 'الوجهة', 'الحالة'],
+        headers: ['السيريال', 'نوع اللاب', 'الموديل', 'التاريخ', 'الموظف', 'العملية', 'الوجهة', 'الحالة', 'نوع التاست'],
         rows: out,
       })
     } catch (err) {
@@ -489,7 +489,7 @@ function EntryLaptops({ entryId, after, stageMap }) {
           .maybeSingle(),
         supabase
           .from('lap_serials')
-          .select('serial, laptop_type, model, stage_code')
+          .select('serial, laptop_type, model, stage_code, operation_id, operations(name_ar)')
           .eq('entry_id', entryId)
           .order('created_at'),
       ])
@@ -549,6 +549,9 @@ function EntryLaptops({ entryId, after, stageMap }) {
                   ) : (
                     <span className="badge bg-emerald-100 text-emerald-800">سليم</span>
                   )}
+                  {s.operations?.name_ar ? (
+                    <span className="badge bg-slate-200 text-slate-700">{s.operations.name_ar}</span>
+                  ) : null}
                 </div>
               ))}
             </div>

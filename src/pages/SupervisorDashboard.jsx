@@ -33,7 +33,7 @@ export default function SupervisorDashboard() {
     const [e, u, st, mq] = await Promise.all([
       supabase
         .from('production_entries')
-        .select('*, profiles!production_entries_worker_id_fkey(full_name), operations(name_ar), entry_operations(operation_id, quantity, operations(name_ar)), lap_serials(serial, laptop_type, model, stage_code)')
+        .select('*, profiles!production_entries_worker_id_fkey(full_name), operations(name_ar), entry_operations(operation_id, quantity, operations(name_ar)), lap_serials(serial, laptop_type, model, stage_code, operation_id, operations(name_ar))')
         .in('status', ['draft', 'submitted'])
         .order('created_at', { ascending: false }),
       supabase.from('profiles').select('*').order('created_at', { ascending: false }),
@@ -110,7 +110,7 @@ export default function SupervisorDashboard() {
   }
 
   function exportPendingEntries() {
-    // ورقة الإدخالات (لكل إدخال) + ورقة تفصيل اللابات (لكل لاب: النوع/الموديل/السيريال/الحالة)
+    // ورقة الإدخالات (لكل إدخال) + ورقة تفصيل اللابات (لكل لاب: النوع/الموديل/السيريال/الحالة/نوع التاست)
     const laptopRows = pendingEntries.flatMap((e) =>
       (e.lap_serials ?? []).map((s) => [
         e.profiles?.full_name ?? '-',
@@ -120,6 +120,7 @@ export default function SupervisorDashboard() {
         s.model ?? '—',
         s.serial,
         s.stage_code ? (stageMap[s.stage_code] ?? s.stage_code) : 'سليم',
+        s.operations?.name_ar ?? '—',
       ])
     )
     exportXlsxSheets({
@@ -139,7 +140,7 @@ export default function SupervisorDashboard() {
         },
         {
           sheetName: 'تفصيل اللابات',
-          headers: ['الموظف', 'التاريخ', 'العملية', 'نوع اللاب', 'الموديل', 'السيريال', 'الحالة'],
+          headers: ['الموظف', 'التاريخ', 'العملية', 'نوع اللاب', 'الموديل', 'السيريال', 'الحالة', 'نوع التاست'],
           rows: laptopRows,
         },
       ],
@@ -289,6 +290,7 @@ export default function SupervisorDashboard() {
                   <th>السيريال</th>
                   <th>نوع اللاب</th>
                   <th>الموديل</th>
+                  <th>نوع التاست</th>
                   <th>الوجهة</th>
                   <th>الموظف</th>
                   <th>التاريخ</th>
@@ -298,7 +300,7 @@ export default function SupervisorDashboard() {
               <tbody>
                 {maintenance.length === 0 && (
                   <tr>
-                    <td colSpan={7} className="text-center text-slate-400 py-6">
+                    <td colSpan={8} className="text-center text-slate-400 py-6">
                       مفيش لابات تحت الصيانة
                     </td>
                   </tr>
@@ -308,6 +310,7 @@ export default function SupervisorDashboard() {
                     <td data-label="السيريال" dir="ltr" className="text-left font-mono text-sm">{m.serial}</td>
                     <td data-label="نوع اللاب">{m.laptop_type || '—'}</td>
                     <td data-label="الموديل">{m.model || '—'}</td>
+                    <td data-label="نوع التاست">{m.operation_name || '—'}</td>
                     <td data-label="الوجهة">
                       <span className="badge bg-amber-100 text-amber-800">
                         {m.dest_code ? (stageMap[m.dest_code] ?? m.dest_code) : '—'}

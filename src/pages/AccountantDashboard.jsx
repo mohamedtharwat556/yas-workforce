@@ -109,7 +109,7 @@ export default function AccountantDashboard() {
   useEffect(() => {
     let active = true
     const ENTRY_SELECT =
-      '*, profiles!production_entries_worker_id_fkey(full_name), operations(name_ar), entry_operations(operation_id, quantity, operations(name_ar)), lap_serials(serial, laptop_type, model, stage_code)'
+      '*, profiles!production_entries_worker_id_fkey(full_name), operations(name_ar), entry_operations(operation_id, quantity, operations(name_ar)), lap_serials(serial, laptop_type, model, stage_code, operation_id, operations(name_ar))'
     async function load() {
       setLoading(true)
       const [e, ar] = await Promise.all([
@@ -297,9 +297,9 @@ export default function AccountantDashboard() {
         },
         {
           sheetName: 'تفصيل اللابات',
-          title: 'تفصيل اللابات (النوع والموديل والسيريال والحالة)',
+          title: 'تفصيل اللابات (النوع والموديل والسيريال والحالة ونوع التاست)',
           meta: [[`الفترة: ${range.start} ← ${range.end}`]],
-          headers: ['اسم الموظف', 'التاريخ', 'العملية', 'نوع اللاب', 'الموديل', 'السيريال', 'الحالة'],
+          headers: ['اسم الموظف', 'التاريخ', 'العملية', 'نوع اللاب', 'الموديل', 'السيريال', 'الحالة', 'نوع التاست'],
           rows: filtered.flatMap((e) =>
             (e.lap_serials ?? []).map((s) => [
               e.profiles?.full_name ?? 'غير معروف',
@@ -309,6 +309,7 @@ export default function AccountantDashboard() {
               s.model ?? '—',
               s.serial,
               s.stage_code ? (stageMap[s.stage_code] ?? s.stage_code) : 'سليم',
+              s.operations?.name_ar ?? '—',
             ])
           ),
         },

@@ -283,12 +283,20 @@ export default function WorkerDashboard() {
 
     // اللابات في الإدخال: نوع + موديل + سيريال + حالته ووجهته (نفس الترتيب)
     const totalLaps = lines.reduce((s, l) => s + l.quantity, 0)
+    // نوع التاست لكل لاب = العملية اللي بيقع تحتها حسب ترتيب بنود الإدخال
+    const opForIndex = Array.from({ length: totalLaps }, () => null)
+    let offset = 0
+    for (const l of lines) {
+      for (let k = 0; k < l.quantity; k += 1) opForIndex[offset + k] = l.operation_id
+      offset += l.quantity
+    }
     const laptopRows = Array.from({ length: totalLaps }, (_, i) => ({
       serial: String(form.serials[i] ?? '').trim(),
       laptop_type: form.types[i] ?? '',
       model: String(form.models[i] ?? '').trim(),
       destination: form.destinations[i] ?? '',
       problem: Boolean(form.problems[i]),
+      operation_id: opForIndex[i] ?? null,
     }))
     if (laptopRows.some((r) => !r.laptop_type || !r.model || !r.serial)) {
       return setMsg({ type: 'error', text: 'كمّل بيانات كل لاب: نوع اللاب والموديل والسيريال.' })
@@ -336,7 +344,7 @@ export default function WorkerDashboard() {
         .insert(lines.map((l) => ({ entry_id: entryId, operation_id: l.operation_id, quantity: l.quantity })))
       if (linesError) throw linesError
 
-      // اللابات (نوع + موديل + سيريال + وجهة اللاب)
+      // اللابات (نوع + موديل + سيريال + وجهة اللاب + نوع التاست)
       const { error } = await supabase.from('lap_serials').insert(
         laptopRows.map((r) => ({
           entry_id: entryId,
@@ -344,6 +352,7 @@ export default function WorkerDashboard() {
           laptop_type: r.laptop_type,
           model: r.model,
           stage_code: r.destination || null,
+          operation_id: r.operation_id,
         }))
       )
       if (error) throw error
