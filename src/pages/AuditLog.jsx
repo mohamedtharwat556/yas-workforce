@@ -322,8 +322,7 @@ export default function AuditLog() {
 
 function AuditDetails({ row, stageMap, onClose }) {
   if (!row) return null
-  const isEntryReview =
-    row.entity === 'production_entries' && String(row.action ?? '').startsWith('review_entry')
+  const isEntry = row.entity === 'production_entries' && Boolean(row.entity_id)
   return (
     <div
       className="fixed inset-0 z-40 flex items-end justify-center bg-black/50 md:items-center md:p-4"
@@ -342,18 +341,18 @@ function AuditDetails({ row, stageMap, onClose }) {
         <p className="text-sm text-slate-500 mb-4">
           {row.profiles?.full_name ?? '—'} · {new Date(row.created_at).toLocaleString('ar-EG')} · {row.entity ?? '—'}
         </p>
-        {isEntryReview && <EntryLaptops entryId={row.entity_id} after={row.after} stageMap={stageMap} />}
+        {isEntry && <EntryLaptops entryId={row.entity_id} after={row.after} stageMap={stageMap} />}
         <DiffTable before={row.before} after={row.after} />
       </div>
     </div>
   )
 }
 
-// اللابات (السيريالات) المرتبطة بالإدخال المعتمد
+// اللابات في الإدخال: مين عملها، العمليات والأعداد، الوجهة، والسيريالات
 function EntryLaptops({ entryId, after, stageMap }) {
   const [loading, setLoading] = useState(true)
+  const [entry, setEntry] = useState(null)
   const [serials, setSerials] = useState([])
-  const info = after ?? {}
 
   useEffect(() => {
     let active = true
@@ -362,13 +361,19 @@ function EntryLaptops({ entryId, after, stageMap }) {
         setLoading(false)
         return
       }
-      const { data } = await supabase
-        .from('lap_serials')
-        .select('serial')
-        .eq('entry_id', entryId)
-        .order('created_at')
+      const [entryRes, serialsRes] = await Promise.all([
+        supabase
+          .from('production_entries')
+          .select(
+            'entry_date, quantity, status, stage_code, notes, profiles!production_entries_worker_id_fkey(full_name, role), operations(name_ar), entry_operations(quantity, operations(name_ar))'
+          )
+          .eq('id', entryId)
+          .maybeSingle(),
+        supabase.from('lap_serials').select('serial').eq('entry_id', entryId).order('created_at'),
+      ])
       if (!active) return
-      setSerials((data ?? []).map((s) => s.serial))
+      setEntry(entryRes.data ?? null)
+      setSerials((serialsRes.data ?? []).map((s) => s.serial))
       setLoading(false)
     }
     load()
@@ -377,26 +382,47 @@ function EntryLaptops({ entryId, after, stageMap }) {
     }
   }, [entryId])
 
+  // نرجّع للـ payload المسجّل في الأوديت لو الإدخال نفسه مش موجود (اتحذف/اتأرشف)
+  const info = entry ?? after ?? {}
+  const worker = info.profiles?.full_name ?? '—'
+  const role = info.profiles?.role ? ` (${VALUE_LABELS[info.profiles.role] ?? info.profiles.role})` : ''
+  const ops = info.entry_operations?.length
+    ? info.entry_operations.map((l) => `${l.operations?.name_ar ?? '—'} (${l.quantity})`).join(' · ')
+    : info.operations?.name_ar
+      ? `${info.operations.name_ar} (${info.quantity ?? '—'})`
+      : '—'
   const stage = info.stage_code ? (stageMap?.[info.stage_code] ?? info.stage_code) : 'سليم'
 
   return (
     <div className="mb-4 rounded-lg bg-slate-50 p-3">
       <h3 className="mb-2 text-sm font-bold">اللابات في الإدخال ده</h3>
-      <p className="mb-2 text-xs text-slate-500">
-        العدد: {info.quantity ?? '—'} · الوجهة: {stage}
-      </p>
       {loading ? (
         <p className="text-xs text-slate-400">جاري التحميل…</p>
-      ) : serials.length ? (
-        <div className="flex flex-wrap gap-2">
-          {serials.map((s) => (
-            <span key={s} dir="ltr" className="rounded bg-white px-2 py-1 font-mono text-xs">
-              {s}
-            </span>
-          ))}
-        </div>
       ) : (
-        <p className="text-xs text-slate-400">مفيش سيريالات مسجّلة للإدخال ده.</p>
+        <>
+          <div className="mb-2 grid gap-x-4 gap-y-1 text-xs text-slate-600 sm:grid-cols-2">
+            <p>
+              الموظف: <span className="font-semibold text-slate-800">{worker}</span>
+              {role}
+            </p>
+            <p>تاريخ الإدخال: {info.entry_date ?? '—'}</p>
+            <p>العدد: {info.quantity ?? '—'}</p>
+            <p>الوجهة: {stage}</p>
+          </div>
+          <p className="mb-2 text-xs text-slate-600">العمليات: {ops}</p>
+          {info.notes ? <p className="mb-2 text-xs text-slate-600">ملاحظات: {info.notes}</p> : null}
+          {serials.length ? (
+            <div className="flex flex-wrap gap-2">
+              {serials.map((s) => (
+                <span key={s} dir="ltr" className="rounded bg-white px-2 py-1 font-mono text-xs">
+                  {s}
+                </span>
+              ))}
+            </div>
+          ) : (
+            <p className="text-xs text-slate-400">مفيش سيريالات مسجّلة للإدخال ده.</p>
+          )}
+        </>
       )}
     </div>
   )
