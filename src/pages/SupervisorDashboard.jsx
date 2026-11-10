@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import Layout from '../components/Layout'
 import StatusBadge from '../components/StatusBadge'
 import EntryDetails from '../components/EntryDetails'
@@ -9,6 +9,7 @@ import { exportXlsx, exportXlsxSheets } from '../lib/xlsx'
 
 const TABS = [
   { key: 'release', label: 'إدخالات للمراجعة' },
+  { key: 'maintenance', label: 'طلبات تحت الصيانة' },
   { key: 'users', label: 'المستخدمون' },
 ]
 
@@ -19,15 +20,17 @@ export default function SupervisorDashboard() {
   const [tab, setTab] = useState('release')
   const [entries, setEntries] = useState([])
   const [users, setUsers] = useState([])
+  const [maintenance, setMaintenance] = useState([])
   const [stageMap, setStageMap] = useState({})
   const [busyId, setBusyId] = useState(null)
+  const [finishingId, setFinishingId] = useState(null)
   const [msg, setMsg] = useState(null)
   const [detailId, setDetailId] = useState(null)
   const [returning, setReturning] = useState(null)
   const [reason, setReason] = useState('')
 
   async function loadAll() {
-    const [e, u, st] = await Promise.all([
+    const [e, u, st, mq] = await Promise.all([
       supabase
         .from('production_entries')
         .select('*, profiles!production_entries_worker_id_fkey(full_name), operations(name_ar), entry_operations(operation_id, quantity, operations(name_ar)), lap_serials(serial, laptop_type, model, stage_code)')
@@ -35,15 +38,46 @@ export default function SupervisorDashboard() {
         .order('created_at', { ascending: false }),
       supabase.from('profiles').select('*').order('created_at', { ascending: false }),
       supabase.from('stages').select('code, name_ar'),
+      supabase.rpc('fn_maintenance_queue'),
     ])
     setEntries(e.data ?? [])
     setUsers(u.data ?? [])
     setStageMap(Object.fromEntries((st.data ?? []).map((s) => [s.code, s.name_ar])))
+    setMaintenance(mq.data ?? [])
   }
 
   useEffect(() => {
     loadAll()
   }, [])
+
+  // عدد اللابات اللي تحت الصيانة جوه الإدخال (اللاب اللي وجهته محددة = تحت الصيانة)
+  function maintenanceCount(entry) {
+    return (entry.lap_serials ?? []).filter((s) => s.stage_code).length
+  }
+
+  // «صفحة الاعتماد» بيوصلها اللابات السليمة بس:
+  // الإدخال يظهر لو فيه لاب واحد على الأقل سليم (وجهته فاضية)، أو إدخال قديم بلا لابات مسجّلة.
+  const pendingEntries = useMemo(
+    () =>
+      entries.filter(
+        (e) => (e.lap_serials ?? []).length === 0 || (e.lap_serials ?? []).some((s) => !s.stage_code)
+      ),
+    [entries]
+  )
+
+  // إنهاء صيانة لاب (المشرف) → يرجّعه للموظف يعمل تست جديد
+  async function finishMaintenance(row) {
+    setMsg(null)
+    setFinishingId(row.serial_id)
+    const { error } = await supabase.rpc('fn_finish_maintenance', { p_serial_id: row.serial_id })
+    setFinishingId(null)
+    if (error) {
+      setMsg({ type: 'error', text: error.message })
+      return
+    }
+    setMsg({ type: 'ok', text: `تم إنهاء صيانة «${row.serial}» — رجع للموظف عشان يعمله تست من جديد.` })
+    loadAll()
+  }
 
   async function approveEntry(entry) {
     setBusyId(entry.id)
@@ -77,7 +111,7 @@ export default function SupervisorDashboard() {
 
   function exportPendingEntries() {
     // ورقة الإدخالات (لكل إدخال) + ورقة تفصيل اللابات (لكل لاب: النوع/الموديل/السيريال/الحالة)
-    const laptopRows = entries.flatMap((e) =>
+    const laptopRows = pendingEntries.flatMap((e) =>
       (e.lap_serials ?? []).map((s) => [
         e.profiles?.full_name ?? '-',
         e.entry_date,
@@ -94,7 +128,7 @@ export default function SupervisorDashboard() {
         {
           sheetName: 'إدخالات للمراجعة',
           headers: ['الموظف', 'التاريخ', 'العملية', 'العدد', 'الملاحظة', 'الحالة'],
-          rows: entries.map((e) => [
+          rows: pendingEntries.map((e) => [
             e.profiles?.full_name ?? '-',
             e.entry_date,
             entryOperationNames(e),
@@ -144,8 +178,11 @@ export default function SupervisorDashboard() {
             className={`${tab === t.key ? 'btn-primary' : 'btn-ghost'} shrink-0 whitespace-nowrap`}
           >
             {t.label}
-            {t.key === 'release' && entries.length > 0 && (
-              <span className="badge bg-white/20 text-inherit">{entries.length}</span>
+            {t.key === 'release' && pendingEntries.length > 0 && (
+              <span className="badge bg-white/20 text-inherit">{pendingEntries.length}</span>
+            )}
+            {t.key === 'maintenance' && maintenance.length > 0 && (
+              <span className="badge bg-white/20 text-inherit">{maintenance.length}</span>
             )}
           </button>
         ))}
@@ -163,10 +200,12 @@ export default function SupervisorDashboard() {
             <div>
               <h2 className="font-bold text-lg">إدخالات في انتظار المراجعة</h2>
               <p className="text-xs text-slate-500 mt-0.5">
-                {entries.length === 0 ? 'مفيش إدخالات معلّقة' : `${entries.length} إدخال في انتظار اعتماد المشرف`}
+                {pendingEntries.length === 0
+                  ? 'مفيش إدخالات فيها لابات سليمة معلّقة'
+                  : `${pendingEntries.length} إدخال فيه لابات سليمة في انتظار الاعتماد`}
               </p>
             </div>
-            <button onClick={exportPendingEntries} disabled={entries.length === 0} className="btn-ghost !py-1.5 text-sm">
+            <button onClick={exportPendingEntries} disabled={pendingEntries.length === 0} className="btn-ghost !py-1.5 text-sm">
               تصدير Excel
             </button>
           </div>
@@ -183,19 +222,24 @@ export default function SupervisorDashboard() {
                 </tr>
               </thead>
               <tbody>
-                {entries.length === 0 && (
+                {pendingEntries.length === 0 && (
                   <tr>
                     <td colSpan={6} className="text-center text-slate-400 py-6">
                       مفيش إدخالات معلّقة
                     </td>
                   </tr>
                 )}
-                {entries.map((e) => (
+                {pendingEntries.map((e) => (
                   <tr key={e.id} className="cursor-pointer hover:bg-slate-50" onClick={() => setDetailId(e.id)}>
                     <td data-label="الموظف">{e.profiles?.full_name ?? '-'}</td>
                     <td data-label="التاريخ">{formatDate(e.entry_date)}</td>
                     <td data-label="العملية">{entryOperationNames(e)}</td>
-                    <td data-label="العدد">{formatNumber(entryTotalQty(e))}</td>
+                    <td data-label="العدد">
+                      {formatNumber(entryTotalQty(e))}
+                      {maintenanceCount(e) > 0 && (
+                        <span className="badge bg-orange-100 text-orange-700 mr-2">تحت الصيانة {maintenanceCount(e)}</span>
+                      )}
+                    </td>
                     <td data-label="الملاحظة" className="max-w-[220px] truncate" title={e.notes ?? ''}>{e.notes || '-'}</td>
                     <td data-label="إجراء" onClick={(ev) => ev.stopPropagation()}>
                       <div className="flex gap-2">
@@ -213,6 +257,72 @@ export default function SupervisorDashboard() {
                           إرجاع
                         </button>
                       </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {tab === 'maintenance' && (
+        <div className="card">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h2 className="font-bold text-lg">طلبات تحت الصيانة</h2>
+              <p className="text-xs text-slate-500 mt-0.5">
+                {maintenance.length === 0
+                  ? 'مفيش لابات تحت الصيانة'
+                  : `${maintenance.length} لاب في انتظار انتهاء الصيانة`}
+              </p>
+            </div>
+          </div>
+          <p className="mb-3 rounded-lg bg-slate-50 p-3 text-xs text-slate-500">
+            اللابات اللي الموظف حدّد إن فيها مشكلة بتظهر هنا تلقائيًا. لما الصيانة تخلص دوس «تمّت الصيانة» ويرجع للموظف
+            عشان يعمله تست من جديد — ومش بيرجع لصفحة الاعتماد غير لما يبقى سليم.
+          </p>
+          <div className="table-wrap">
+            <table className="table table-cards">
+              <thead>
+                <tr>
+                  <th>السيريال</th>
+                  <th>نوع اللاب</th>
+                  <th>الموديل</th>
+                  <th>الوجهة</th>
+                  <th>الموظف</th>
+                  <th>التاريخ</th>
+                  <th>إجراء</th>
+                </tr>
+              </thead>
+              <tbody>
+                {maintenance.length === 0 && (
+                  <tr>
+                    <td colSpan={7} className="text-center text-slate-400 py-6">
+                      مفيش لابات تحت الصيانة
+                    </td>
+                  </tr>
+                )}
+                {maintenance.map((m) => (
+                  <tr key={m.serial_id}>
+                    <td data-label="السيريال" dir="ltr" className="text-left font-mono text-sm">{m.serial}</td>
+                    <td data-label="نوع اللاب">{m.laptop_type || '—'}</td>
+                    <td data-label="الموديل">{m.model || '—'}</td>
+                    <td data-label="الوجهة">
+                      <span className="badge bg-amber-100 text-amber-800">
+                        {m.dest_code ? (stageMap[m.dest_code] ?? m.dest_code) : '—'}
+                      </span>
+                    </td>
+                    <td data-label="الموظف">{m.worker_name || '-'}</td>
+                    <td data-label="التاريخ">{formatDate(m.entry_date)}</td>
+                    <td data-label="إجراء">
+                      <button
+                        disabled={finishingId === m.serial_id}
+                        onClick={() => finishMaintenance(m)}
+                        className="btn-primary !py-1 !px-3 text-sm"
+                      >
+                        {finishingId === m.serial_id ? '…' : 'تمّت الصيانة'}
+                      </button>
                     </td>
                   </tr>
                 ))}

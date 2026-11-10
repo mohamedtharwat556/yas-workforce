@@ -58,6 +58,8 @@ export default function WorkerDashboard() {
   const [operations, setOperations] = useState([])
   const [destinations, setDestinations] = useState([])
   const [entries, setEntries] = useState([])
+  const [retest, setRetest] = useState([])
+  const [tab, setTab] = useState('entry')
   const [form, setForm] = useState(emptyForm())
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState(null)
@@ -96,11 +98,18 @@ export default function WorkerDashboard() {
     setEntries(data ?? [])
   }
 
+  // لابات رجعتلي من الصيانة ومستنية إني أعملها تست من جديد
+  async function loadRetest() {
+    const { data } = await supabase.rpc('fn_worker_retest_queue')
+    setRetest(data ?? [])
+  }
+
   useEffect(() => {
     if (!user) return
     loadOperations()
     loadDestinations()
     loadEntries()
+    loadRetest()
   }, [user])
 
   // بنحسب الإدخالات المعتمدة من المشرف (وأيضًا المُصدرة) في ملخّص الإنتاجية.
@@ -337,6 +346,7 @@ export default function WorkerDashboard() {
           : 'تم تسجيل إدخالك، وهو في انتظار إصدار المشرف.',
       })
       loadEntries()
+      loadRetest()
     } catch (err) {
       setMsg({ type: 'error', text: err.message || 'حصل خطأ أثناء الحفظ.' })
     } finally {
@@ -407,6 +417,27 @@ export default function WorkerDashboard() {
     loadEntries()
   }
 
+  // اللاب رجع من الصيانة → نجهّز بياناته في الفورم عشان الموظف يعمله تست من جديد
+  function retestAgain(row) {
+    setEditingId(null)
+    setForm(
+      emptyForm({
+        entry_date: form.entry_date,
+        serials: [row.serial ?? ''],
+        types: [row.laptop_type ?? ''],
+        models: [row.model ?? ''],
+        destinations: [''],
+        problems: [false],
+      })
+    )
+    setTab('entry')
+    setMsg({
+      type: 'ok',
+      text: `اللاب «${row.serial}» رجع من الصيانة — اختار العملية والعدد وهوظهر في أول خانات اللابات كمسودّة اختبار جديدة.`,
+    })
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
   return (
     <Layout title="إنتاجي اليوم">
       <div className="grid gap-4 md:grid-cols-3 mb-6">
@@ -415,6 +446,29 @@ export default function WorkerDashboard() {
         <StatCard label="لابات الشهر" value={summary.month.laps} />
       </div>
 
+      <div className="flex gap-2 mb-4 overflow-x-auto -mx-1 px-1">
+        <button
+          onClick={() => {
+            setTab('entry')
+            setMsg(null)
+          }}
+          className={`${tab === 'entry' ? 'btn-primary' : 'btn-ghost'} shrink-0 whitespace-nowrap`}
+        >
+          تسجيل إنتاج
+        </button>
+        <button
+          onClick={() => {
+            setTab('retest')
+            setMsg(null)
+          }}
+          className={`${tab === 'retest' ? 'btn-primary' : 'btn-ghost'} shrink-0 whitespace-nowrap`}
+        >
+          في انتظار إعادة الاختبار
+          {retest.length > 0 && <span className="badge bg-white/20 text-inherit">{retest.length}</span>}
+        </button>
+      </div>
+
+      {tab === 'entry' && (
       <div className="grid gap-6 lg:grid-cols-5">
         <form onSubmit={handleSubmit} className="card lg:col-span-2 space-y-4 h-fit order-1 lg:order-none">
           <h2 className="font-bold text-lg">{editingId ? 'تعديل إدخال' : 'تسجيل إنتاج جديد'}</h2>
@@ -648,6 +702,66 @@ export default function WorkerDashboard() {
           </div>
         </div>
       </div>
+      )}
+
+      {tab === 'retest' && (
+        <div className="card">
+          <div className="mb-3">
+            <h2 className="font-bold text-lg">في انتظار إعادة الاختبار</h2>
+            <p className="text-xs text-slate-500 mt-0.5">
+              {retest.length === 0
+                ? 'مفيش لابات راجعة من الصيانة'
+                : `${retest.length} لاب رجع من الصيانة — اعمله تست من جديد.`}
+            </p>
+          </div>
+          <p className="mb-3 rounded-lg bg-slate-50 p-3 text-xs text-slate-500">
+            اللابات اللي المشرف خلّص صيانتها بترجع لك هنا تلقائيًا. دوس «إعادة اختبار» وهيروح لتاب «تسجيل إنتاج» ببيانات
+            اللاب (النوع والموديل والسيريال) عشان تسجّل تست جديد.
+          </p>
+          <div className="table-wrap">
+            <table className="table table-cards">
+              <thead>
+                <tr>
+                  <th>السيريال</th>
+                  <th>نوع اللاب</th>
+                  <th>الموديل</th>
+                  <th>آخر مشكلة</th>
+                  <th>اتخلّصت الصيانة</th>
+                  <th>إجراء</th>
+                </tr>
+              </thead>
+              <tbody>
+                {retest.length === 0 && (
+                  <tr>
+                    <td colSpan={6} className="text-center text-slate-400 py-6">
+                      مفيش لابات في انتظار إعادة الاختبار
+                    </td>
+                  </tr>
+                )}
+                {retest.map((r) => (
+                  <tr key={r.serial_id}>
+                    <td data-label="السيريال" dir="ltr" className="text-left font-mono text-sm">{r.serial}</td>
+                    <td data-label="نوع اللاب">{r.laptop_type || '—'}</td>
+                    <td data-label="الموديل">{r.model || '—'}</td>
+                    <td data-label="آخر مشكلة">
+                      <span className="badge bg-amber-100 text-amber-800">
+                        {r.dest_code ? (destinations.find((d) => d.code === r.dest_code)?.name_ar ?? r.dest_code) : '—'}
+                      </span>
+                    </td>
+                    <td data-label="اتخلّصت الصيانة">{r.done_at ? formatDate(r.done_at) : '-'}</td>
+                    <td data-label="إجراء">
+                      <button onClick={() => retestAgain(r)} className="btn-accent !py-1 !px-3 text-sm">
+                        إعادة اختبار
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
       {detailId && <EntryDetails entryId={detailId} onClose={() => setDetailId(null)} />}
     </Layout>
   )
