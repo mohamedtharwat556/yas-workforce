@@ -14,6 +14,9 @@ const ACTION_LABELS = {
   approve_laptop: 'اعتماد لاب',
   'release_laptop:released': 'إصدار لاب',
   'release_laptop:returned': 'إرجاع لاب',
+  archive_entry: 'أرشفة إدخال',
+  restore_entry: 'استرجاع إدخال',
+  delete_all_entries: 'حذف كل الإدخالات',
   close_month: 'إغلاق شهر',
   reopen_month: 'إعادة فتح شهر',
   add_adjustment: 'إضافة تسوية',
@@ -43,14 +46,28 @@ const LIMIT = 300
 
 export default function AuditLog() {
   const { profile } = useAuth()
-  const isAccountant = profile?.role === 'accountant'
+  const canDelete = ['supervisor', 'accountant'].includes(profile?.role)
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(false)
   const [from, setFrom] = useState(startOfMonthISO())
   const [to, setTo] = useState(toISODate(new Date()))
   const [q, setQ] = useState('')
+  const [approvedOnly, setApprovedOnly] = useState(false)
   const [openId, setOpenId] = useState(null)
   const [busyId, setBusyId] = useState(null)
+  const [busyAll, setBusyAll] = useState(false)
+  const [exporting, setExporting] = useState(false)
+  const [reloadKey, setReloadKey] = useState(0)
+  const [stageMap, setStageMap] = useState({})
+
+  useEffect(() => {
+    supabase
+      .from('stages')
+      .select('code, name_ar')
+      .then(({ data }) => {
+        setStageMap(Object.fromEntries((data ?? []).map((s) => [s.code, s.name_ar])))
+      })
+  }, [])
 
   useEffect(() => {
     let active = true
@@ -71,17 +88,19 @@ export default function AuditLog() {
     return () => {
       active = false
     }
-  }, [from, to])
+  }, [from, to, reloadKey])
 
   const filtered = useMemo(() => {
+    let list = rows
+    if (approvedOnly) list = list.filter((r) => String(r.action ?? '').includes('approved'))
     const term = q.trim().toLowerCase()
-    if (!term) return rows
-    return rows.filter((r) =>
+    if (!term) return list
+    return list.filter((r) =>
       [r.action, r.entity, actionLabel(r.action), r.profiles?.full_name]
         .filter(Boolean)
         .some((v) => String(v).toLowerCase().includes(term))
     )
-  }, [rows, q])
+  }, [rows, q, approvedOnly])
 
   async function removeRow(row) {
     if (!window.confirm('تأكيد حذف السجل ده من سجل الأوديت نهائيًا؟')) return
@@ -91,6 +110,27 @@ export default function AuditLog() {
     if (error) return window.alert(error.message)
     setRows((prev) => prev.filter((r) => r.id !== row.id))
     setOpenId((id) => (id === row.id ? null : id))
+  }
+
+  async function removeAll() {
+    if (!rows.length) return
+    if (
+      !window.confirm(
+        `تأكيد حذف كل أحداث السجل من ${from} إلى ${to} نهائيًا؟\nعدد الأحداث: ${rows.length}`
+      )
+    )
+      return
+    if (!window.confirm('متأكد؟ الحذف نهائي ومش هينفع ترجع الأحداث تاني.')) return
+    setBusyAll(true)
+    const { data, error } = await supabase.rpc('fn_delete_all_audit_logs', {
+      p_from: `${from}T00:00:00`,
+      p_to: `${to}T23:59:59`,
+    })
+    setBusyAll(false)
+    if (error) return window.alert(error.message)
+    setOpenId(null)
+    setReloadKey((k) => k + 1)
+    window.alert(`تم حذف ${data ?? 0} حدث.`)
   }
 
   function exportExcel() {
@@ -108,6 +148,59 @@ export default function AuditLog() {
         r.entity_id ?? '—',
       ]),
     })
+  }
+
+  // شيت اللابات المعتمدة في الفترة (سيريال + موظف + عملية + وجهة + حالة)
+  async function exportApprovedLaptops() {
+    setExporting(true)
+    try {
+      const { data, error } = await supabase
+        .from('production_entries')
+        .select(
+          'id, entry_date, quantity, status, stage_code, profiles!production_entries_worker_id_fkey(full_name), operations(name_ar), entry_operations(quantity, operations(name_ar)), lap_serials(serial)'
+        )
+        .in('status', ['approved', 'released'])
+        .gte('entry_date', from)
+        .lte('entry_date', to)
+        .order('entry_date', { ascending: true })
+      if (error) throw error
+
+      const entries = data ?? []
+      const out = []
+      for (const e of entries) {
+        const worker = e.profiles?.full_name ?? '—'
+        const ops = (
+          e.entry_operations?.length
+            ? e.entry_operations.map((l) => `${l.operations?.name_ar ?? '—'} (${l.quantity})`)
+            : [`${e.operations?.name_ar ?? '—'} (${e.quantity})`]
+        ).join(' · ')
+        const stage = e.stage_code ? (stageMap[e.stage_code] ?? e.stage_code) : 'سليم'
+        const status = e.status === 'released' ? 'مُصدر' : 'معتمد'
+        const serials = (e.lap_serials ?? []).map((s) => s.serial)
+        if (serials.length) {
+          for (const s of serials) out.push([s, e.entry_date, worker, ops, stage, status])
+        } else {
+          out.push(['—', e.entry_date, worker, ops, stage, status])
+        }
+      }
+
+      if (!out.length) {
+        window.alert('مفيش لابات معتمدة في الفترة دي.')
+        return
+      }
+
+      exportXlsx({
+        filename: `yas-approved-laptops_${from}_${to}.xlsx`,
+        sheetName: 'لابات معتمدة',
+        meta: [[`الفترة: ${from} ← ${to}`], [`عدد الإدخالات: ${entries.length}`]],
+        headers: ['السيريال', 'التاريخ', 'الموظف', 'العملية', 'الوجهة', 'الحالة'],
+        rows: out,
+      })
+    } catch (err) {
+      window.alert(err.message || 'تعذّر تصدير الملف.')
+    } finally {
+      setExporting(false)
+    }
   }
 
   return (
@@ -130,10 +223,28 @@ export default function AuditLog() {
             onChange={(e) => setQ(e.target.value)}
           />
         </div>
+        <div className="w-full sm:w-auto">
+          <label className="label">&nbsp;</label>
+          <button
+            type="button"
+            onClick={() => setApprovedOnly((v) => !v)}
+            className={approvedOnly ? 'btn-accent' : 'btn-ghost'}
+          >
+            {approvedOnly ? '✓ الإدخالات المعتمدة فقط' : 'عرض المعتمدة فقط'}
+          </button>
+        </div>
         <div className="flex-1" />
-        <button onClick={exportExcel} disabled={filtered.length === 0} className="btn-ghost">
-          تصدير Excel
+        <button onClick={exportApprovedLaptops} disabled={exporting} className="btn-ghost">
+          {exporting ? 'جاري التصدير…' : 'لابات معتمدة (Excel)'}
         </button>
+        <button onClick={exportExcel} disabled={filtered.length === 0} className="btn-ghost">
+          تصدير السجل Excel
+        </button>
+        {canDelete && (
+          <button onClick={removeAll} disabled={busyAll || rows.length === 0} className="btn-danger">
+            {busyAll ? '…' : 'حذف الكل'}
+          </button>
+        )}
       </div>
 
       <div className="card">
@@ -180,7 +291,7 @@ export default function AuditLog() {
                           {openId === r.id ? 'إخفاء' : 'تفاصيل'}
                         </button>
                       )}
-                      {isAccountant && (
+                      {canDelete && (
                         <button
                           onClick={() => removeRow(r)}
                           disabled={busyId === r.id}
@@ -198,13 +309,21 @@ export default function AuditLog() {
         </div>
       </div>
 
-      {openId && <AuditDetails row={filtered.find((r) => r.id === openId)} onClose={() => setOpenId(null)} />}
+      {openId && (
+        <AuditDetails
+          row={filtered.find((r) => r.id === openId)}
+          stageMap={stageMap}
+          onClose={() => setOpenId(null)}
+        />
+      )}
     </Layout>
   )
 }
 
-function AuditDetails({ row, onClose }) {
+function AuditDetails({ row, stageMap, onClose }) {
   if (!row) return null
+  const isEntryReview =
+    row.entity === 'production_entries' && String(row.action ?? '').startsWith('review_entry')
   return (
     <div
       className="fixed inset-0 z-40 flex items-end justify-center bg-black/50 md:items-center md:p-4"
@@ -223,8 +342,62 @@ function AuditDetails({ row, onClose }) {
         <p className="text-sm text-slate-500 mb-4">
           {row.profiles?.full_name ?? '—'} · {new Date(row.created_at).toLocaleString('ar-EG')} · {row.entity ?? '—'}
         </p>
+        {isEntryReview && <EntryLaptops entryId={row.entity_id} after={row.after} stageMap={stageMap} />}
         <DiffTable before={row.before} after={row.after} />
       </div>
+    </div>
+  )
+}
+
+// اللابات (السيريالات) المرتبطة بالإدخال المعتمد
+function EntryLaptops({ entryId, after, stageMap }) {
+  const [loading, setLoading] = useState(true)
+  const [serials, setSerials] = useState([])
+  const info = after ?? {}
+
+  useEffect(() => {
+    let active = true
+    async function load() {
+      if (!entryId) {
+        setLoading(false)
+        return
+      }
+      const { data } = await supabase
+        .from('lap_serials')
+        .select('serial')
+        .eq('entry_id', entryId)
+        .order('created_at')
+      if (!active) return
+      setSerials((data ?? []).map((s) => s.serial))
+      setLoading(false)
+    }
+    load()
+    return () => {
+      active = false
+    }
+  }, [entryId])
+
+  const stage = info.stage_code ? (stageMap?.[info.stage_code] ?? info.stage_code) : 'سليم'
+
+  return (
+    <div className="mb-4 rounded-lg bg-slate-50 p-3">
+      <h3 className="mb-2 text-sm font-bold">اللابات في الإدخال ده</h3>
+      <p className="mb-2 text-xs text-slate-500">
+        العدد: {info.quantity ?? '—'} · الوجهة: {stage}
+      </p>
+      {loading ? (
+        <p className="text-xs text-slate-400">جاري التحميل…</p>
+      ) : serials.length ? (
+        <div className="flex flex-wrap gap-2">
+          {serials.map((s) => (
+            <span key={s} dir="ltr" className="rounded bg-white px-2 py-1 font-mono text-xs">
+              {s}
+            </span>
+          ))}
+        </div>
+      ) : (
+        <p className="text-xs text-slate-400">مفيش سيريالات مسجّلة للإدخال ده.</p>
+      )}
     </div>
   )
 }
@@ -252,6 +425,7 @@ const FIELD_LABELS = {
   reason: 'السبب',
   decision: 'القرار',
   notes_text: 'ملاحظات',
+  deleted: 'عدد المحذوف',
 }
 
 // قيم ثابتة بالعربي (حالات/أدوار)
@@ -261,6 +435,7 @@ const VALUE_LABELS = {
   approved: 'معتمد',
   released: 'مُصدر',
   returned: 'مُرتجع',
+  archived: 'مؤرشف',
   pending: 'قيد المراجعة',
   active: 'نشط',
   inactive: 'موقوف',
