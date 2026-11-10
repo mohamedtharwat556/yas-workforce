@@ -41,8 +41,9 @@ begin
     raise exception 'حذف كل الإدخالات متاح لدور الحسابات فقط';
   end if;
 
-  select count(*) into v_count from public.production_entries;
-  delete from public.production_entries;
+  -- ملاحظة: شرط WHERE إجباري لأن إمتداد supautils في Supabase يرفض DELETE بدون WHERE.
+  select count(*) into v_count from public.production_entries where id is not null;
+  delete from public.production_entries where id is not null;
 
   perform public.fn_audit(
     'delete_all_entries',
