@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import Layout from '../components/Layout'
-import { supabase } from '../lib/supabase'
+import { supabase, fetchAll } from '../lib/supabase'
 import { formatDate, formatNumber, toISODate } from '../lib/dates'
 import { exportXlsxSheets } from '../lib/xlsx'
 
@@ -9,6 +9,7 @@ export default function Employees() {
   const [entries, setEntries] = useState([])
   const [stageMap, setStageMap] = useState({})
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
   const [employeeId, setEmployeeId] = useState('')
   const [query, setQuery] = useState('')
   const [from, setFrom] = useState('')
@@ -16,19 +17,30 @@ export default function Employees() {
 
   async function loadAll() {
     setLoading(true)
-    const [w, e, st] = await Promise.all([
-      supabase.from('profiles').select('id, full_name, email, status').eq('role', 'worker').order('full_name'),
-      supabase
-        .from('production_entries')
-        .select(
-          'id, worker_id, entry_date, status, profiles!production_entries_worker_id_fkey(full_name), lap_serials(serial, laptop_type, model, stage_code, maintenance_status)'
+    setError('')
+    try {
+      const [w, e, st] = await Promise.all([
+        supabase.from('profiles').select('id, full_name, email, status').eq('role', 'worker').order('full_name'),
+        // بنسحب على دفعات — عشان الإدخالات لما تعدّي 1000 صف متتقطعش بصمت
+        fetchAll(() =>
+          supabase
+            .from('production_entries')
+            .select(
+              'id, worker_id, entry_date, status, profiles!production_entries_worker_id_fkey(full_name), lap_serials(serial, laptop_type, model, stage_code, maintenance_status)'
+            )
+            .order('entry_date', { ascending: false })
+            .order('id')
         ),
-      supabase.from('stages').select('code, name_ar'),
-    ])
-    setWorkers(w.data ?? [])
-    setEntries(e.data ?? [])
-    setStageMap(Object.fromEntries((st.data ?? []).map((s) => [s.code, s.name_ar])))
-    setLoading(false)
+        supabase.from('stages').select('code, name_ar'),
+      ])
+      setWorkers(w.data ?? [])
+      setEntries(e)
+      setStageMap(Object.fromEntries((st.data ?? []).map((s) => [s.code, s.name_ar])))
+    } catch (err) {
+      setError(err.message || 'حصل خطأ أثناء تحميل البيانات.')
+    } finally {
+      setLoading(false)
+    }
   }
 
   useEffect(() => {
@@ -168,6 +180,9 @@ export default function Employees() {
 
   return (
     <Layout title="الموظفين">
+      {error && (
+        <div className="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</div>
+      )}
       <div className="card mb-4">
         <div className="grid gap-3 md:grid-cols-12">
           <div className="md:col-span-3">

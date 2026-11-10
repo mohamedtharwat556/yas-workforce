@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import Layout from '../components/Layout'
 import StatusBadge from '../components/StatusBadge'
 import EntryDetails from '../components/EntryDetails'
+import SerialScanner, { SCAN_SUPPORTED } from '../components/SerialScanner'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
 import {
@@ -58,6 +59,7 @@ export default function WorkerDashboard() {
   const [operations, setOperations] = useState([])
   const [destinations, setDestinations] = useState([])
   const [entries, setEntries] = useState([])
+  const [summarySource, setSummarySource] = useState([])
   const [retest, setRetest] = useState([])
   const [tab, setTab] = useState('entry')
   const [form, setForm] = useState(emptyForm())
@@ -66,6 +68,7 @@ export default function WorkerDashboard() {
   const [detailId, setDetailId] = useState(null)
   const [editingId, setEditingId] = useState(null)
   const [busyId, setBusyId] = useState(null)
+  const [scanIdx, setScanIdx] = useState(null)
 
   async function loadOperations() {
     const { data } = await supabase
@@ -98,6 +101,18 @@ export default function WorkerDashboard() {
     setEntries(data ?? [])
   }
 
+  // ملخّص اليوم/الأسبوع/الشهر بيحتاج كل إدخالات الفترة، مش آخر 100 بس —
+  // عشان كده بنسحبه باستعلام مخصوص من بداية الأسبوع أو الشهر (الأقدم بينهم).
+  async function loadSummarySource() {
+    const from = toISODate(startOfWeek() < startOfMonth() ? startOfWeek() : startOfMonth())
+    const { data } = await supabase
+      .from('production_entries')
+      .select('entry_date, status, worker_hidden_at, quantity, operation_id, entry_operations(quantity)')
+      .eq('worker_id', user.id)
+      .gte('entry_date', from)
+    setSummarySource(data ?? [])
+  }
+
   // لابات رجعتلي من الصيانة ومستنية إني أعملها تست من جديد
   async function loadRetest() {
     const { data } = await supabase.rpc('fn_worker_retest_queue')
@@ -109,6 +124,7 @@ export default function WorkerDashboard() {
     loadOperations()
     loadDestinations()
     loadEntries()
+    loadSummarySource()
     loadRetest()
   }, [user])
 
@@ -116,8 +132,8 @@ export default function WorkerDashboard() {
   // الإدخالات اللي الموظف حذفها من أرشيفه (worker_hidden_at) بتتشال من الأرقام كمان.
   // المؤرشفة بس (من غير حذف) بتفضل محسوبة.
   const released = useMemo(
-    () => entries.filter((e) => (e.status === 'approved' || e.status === 'released') && !e.worker_hidden_at),
-    [entries]
+    () => summarySource.filter((e) => (e.status === 'approved' || e.status === 'released') && !e.worker_hidden_at),
+    [summarySource]
   )
 
   const summary = useMemo(() => {
@@ -346,6 +362,7 @@ export default function WorkerDashboard() {
           : 'تم تسجيل إدخالك، وهو في انتظار إصدار المشرف.',
       })
       loadEntries()
+      loadSummarySource()
       loadRetest()
     } catch (err) {
       setMsg({ type: 'error', text: err.message || 'حصل خطأ أثناء الحفظ.' })
@@ -430,6 +447,7 @@ export default function WorkerDashboard() {
     setMsg({ type: 'ok', text: `تم إرسال اللاب «${row.serial}» للمشرف — اللاب سليم وجاهز للاعتماد.` })
     loadRetest()
     loadEntries()
+    loadSummarySource()
   }
 
   // اللاب لسه فيه مشكلة بعد الصيانة → يرجع للصيانة تاني ويتشال من طابور إعادة الاختبار
@@ -574,18 +592,46 @@ export default function WorkerDashboard() {
                               />
                             </div>
                             <div className="flex flex-col gap-2 sm:flex-row">
-                              <input
-                                className="input flex-1 font-mono text-sm"
-                                dir="ltr"
-                                inputMode="text"
-                                autoCapitalize="characters"
-                                autoCorrect="off"
-                                spellCheck={false}
-                                enterKeyHint="next"
-                                placeholder={`سيريال ${i + 1}`}
-                                value={form.serials[idx] ?? ''}
-                                onChange={(e) => setSerial(idx, e.target.value)}
-                              />
+                              <div className="flex flex-1 gap-2">
+                                <input
+                                  className="input flex-1 font-mono text-sm"
+                                  dir="ltr"
+                                  inputMode="text"
+                                  autoCapitalize="characters"
+                                  autoCorrect="off"
+                                  spellCheck={false}
+                                  enterKeyHint="next"
+                                  placeholder={`سيريال ${i + 1}`}
+                                  value={form.serials[idx] ?? ''}
+                                  onChange={(e) => setSerial(idx, e.target.value)}
+                                />
+                                {SCAN_SUPPORTED && (
+                                  <button
+                                    type="button"
+                                    onClick={() => setScanIdx(idx)}
+                                    className="btn-ghost shrink-0 !px-3"
+                                    aria-label={`مسح سيريال اللاب ${i + 1} بالكاميرا`}
+                                    title="مسح السيريال بالكاميرا"
+                                  >
+                                    <svg
+                                      viewBox="0 0 24 24"
+                                      fill="none"
+                                      stroke="currentColor"
+                                      strokeWidth="1.8"
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                      className="h-5 w-5"
+                                      aria-hidden="true"
+                                    >
+                                      <path d="M4 8V6a2 2 0 0 1 2-2h2" />
+                                      <path d="M20 8V6a2 2 0 0 0-2-2h-2" />
+                                      <path d="M4 16v2a2 2 0 0 0 2 2h2" />
+                                      <path d="M20 16v2a2 2 0 0 1-2 2h-2" />
+                                      <circle cx="12" cy="12" r="3" />
+                                    </svg>
+                                  </button>
+                                )}
+                              </div>
                               <div className="flex shrink-0 overflow-hidden rounded-lg border border-slate-300">
                                 <button
                                   type="button"
@@ -797,6 +843,16 @@ export default function WorkerDashboard() {
             </table>
           </div>
         </div>
+      )}
+
+      {scanIdx !== null && (
+        <SerialScanner
+          onClose={() => setScanIdx(null)}
+          onDetected={(value) => {
+            setSerial(scanIdx, value)
+            setScanIdx(null)
+          }}
+        />
       )}
 
       {detailId && <EntryDetails entryId={detailId} onClose={() => setDetailId(null)} />}

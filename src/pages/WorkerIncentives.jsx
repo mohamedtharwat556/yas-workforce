@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import Layout from '../components/Layout'
 import StatusBadge from '../components/StatusBadge'
 import { useAuth } from '../context/AuthContext'
-import { supabase } from '../lib/supabase'
+import { supabase, fetchAll } from '../lib/supabase'
 import { formatDate, formatNumber, startOfMonth, startOfWeek, toISODate, entryLines, entryOperationNames } from '../lib/dates'
 import { exportXlsx } from '../lib/xlsx'
 import { printReport } from '../lib/report'
@@ -11,21 +11,32 @@ export default function WorkerIncentives() {
   const { user, profile } = useAuth()
   const [entries, setEntries] = useState([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
 
   useEffect(() => {
     if (!user) return
     let active = true
     async function load() {
       setLoading(true)
-      const { data } = await supabase
-        .from('production_entries')
-        .select('*, operations(name_ar), entry_operations(operation_id, quantity, operations(name_ar))')
-        .eq('worker_id', user.id)
-        .in('status', ['approved', 'released'])
-        .order('entry_date', { ascending: false })
-      if (!active) return
-      setEntries(data ?? [])
-      setLoading(false)
+      setError('')
+      try {
+        // بنسحب على دفعات عشان سجل الموظف الطويل مايتقطعش عند 1000 صف
+        const rows = await fetchAll(() =>
+          supabase
+            .from('production_entries')
+            .select('*, operations(name_ar), entry_operations(operation_id, quantity, operations(name_ar))')
+            .eq('worker_id', user.id)
+            .in('status', ['approved', 'released'])
+            .order('entry_date', { ascending: false })
+            .order('id')
+        )
+        if (!active) return
+        setEntries(rows)
+      } catch (err) {
+        if (active) setError(err.message || 'حصل خطأ أثناء تحميل إنتاجك.')
+      } finally {
+        if (active) setLoading(false)
+      }
     }
     load()
     return () => {
@@ -107,6 +118,7 @@ export default function WorkerIncentives() {
 
   return (
     <Layout title="تفاصيل إنتاجي">
+      {error && <div className="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</div>}
       <div className="card mb-6">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>

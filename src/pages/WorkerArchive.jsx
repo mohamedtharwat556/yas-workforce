@@ -3,7 +3,7 @@ import Layout from '../components/Layout'
 import StatusBadge from '../components/StatusBadge'
 import EntryDetails from '../components/EntryDetails'
 import { useAuth } from '../context/AuthContext'
-import { supabase } from '../lib/supabase'
+import { supabase, fetchAll } from '../lib/supabase'
 import { entryOperationNames, entryTotalQty, formatDate, formatNumber } from '../lib/dates'
 
 // أرشيف الموظف: الإدخالات المعتمدة اللي الموظف نقلها من صفحته الرئيسية.
@@ -18,16 +18,25 @@ export default function WorkerArchive() {
 
   async function loadEntries() {
     setLoading(true)
-    const { data } = await supabase
-      .from('production_entries')
-      .select('*, operations(name_ar, name_en), entry_operations(operation_id, quantity, operations(name_ar))')
-      .eq('worker_id', user.id)
-      .not('worker_archived_at', 'is', null)
-      .is('worker_hidden_at', null)
-      .order('entry_date', { ascending: false })
-      .order('created_at', { ascending: false })
-    setEntries(data ?? [])
-    setLoading(false)
+    try {
+      // بنسحب على دفعات عشان الأرشيف الكبير مايتقطعش عند 1000 صف
+      const rows = await fetchAll(() =>
+        supabase
+          .from('production_entries')
+          .select('*, operations(name_ar, name_en), entry_operations(operation_id, quantity, operations(name_ar))')
+          .eq('worker_id', user.id)
+          .not('worker_archived_at', 'is', null)
+          .is('worker_hidden_at', null)
+          .order('entry_date', { ascending: false })
+          .order('created_at', { ascending: false })
+          .order('id')
+      )
+      setEntries(rows)
+    } catch (err) {
+      setMsg({ type: 'error', text: err.message || 'حصل خطأ أثناء تحميل الأرشيف.' })
+    } finally {
+      setLoading(false)
+    }
   }
 
   useEffect(() => {
