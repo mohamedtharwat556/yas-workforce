@@ -14,6 +14,8 @@ const TONES = {
   laptop_released: 'bg-emerald-600',
   laptop_returned: 'bg-red-600',
   month_closed: 'bg-violet-600',
+  maintenance_done: 'bg-sky-600',
+  retest_problem: 'bg-amber-600',
 }
 
 function targetFor(type, role) {
@@ -31,6 +33,10 @@ function targetFor(type, role) {
       return '/supervisor'
     case 'month_closed':
       return role === 'worker' ? '/worker/incentives' : '/accountant'
+    case 'maintenance_done':
+      return '/worker'
+    case 'retest_problem':
+      return '/supervisor'
     default:
       return null
   }
