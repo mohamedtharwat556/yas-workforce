@@ -71,11 +71,11 @@ export default function Employees() {
     return rows.sort((a, b) => (b.entry_date ?? '').localeCompare(a.entry_date ?? ''))
   }, [entries, from, to])
 
-  // إحصائيات كل موظف: عدد الإدخالات + عدد اللابات + سليم + تحت الصيانة + آخر إدخال
+  // إحصائيات كل موظف: عدد اللابات + سليم + تحت الصيانة + آخر إدخال
   const stats = useMemo(() => {
     const map = {}
     for (const w of workers) {
-      map[w.id] = { worker: w, entries: 0, total: 0, healthy: 0, maintenance: 0, lastDate: null }
+      map[w.id] = { worker: w, total: 0, healthy: 0, maintenance: 0, lastDate: null }
     }
     for (const e of entries) {
       const d = e.entry_date ?? ''
@@ -83,7 +83,6 @@ export default function Employees() {
       if (to && d > to) continue
       const st = map[e.worker_id]
       if (!st) continue
-      st.entries += 1
       if (e.entry_date && (!st.lastDate || e.entry_date > st.lastDate)) st.lastDate = e.entry_date
     }
     for (const l of laptops) {
@@ -125,11 +124,10 @@ export default function Employees() {
     () =>
       filteredStats.reduce(
         (acc, s) => ({
-          entries: acc.entries + s.entries,
           total: acc.total + s.total,
           maintenance: acc.maintenance + s.maintenance,
         }),
-        { entries: 0, total: 0, maintenance: 0 }
+        { total: 0, maintenance: 0 }
       ),
     [filteredStats]
   )
@@ -151,10 +149,9 @@ export default function Employees() {
         {
           sheetName: 'الموظفين',
           title: `تقرير الموظفين — ${scope}`,
-          headers: ['الموظف', 'عدد الإدخالات', 'عدد اللابات', 'سليم', 'تحت الصيانة', 'آخر إدخال'],
+          headers: ['الموظف', 'عدد اللابات', 'سليم', 'تحت الصيانة', 'آخر إدخال'],
           rows: filteredStats.map((s) => [
             s.worker.full_name ?? '-',
-            s.entries,
             s.total,
             s.healthy,
             s.maintenance,
@@ -221,7 +218,6 @@ export default function Employees() {
         </div>
         <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-slate-500">
           <span className="badge bg-slate-100 text-slate-600">{filteredStats.length} موظف</span>
-          <span className="badge bg-slate-100 text-slate-600">{formatNumber(totals.entries)} إدخال</span>
           <span className="badge bg-slate-100 text-slate-600">{formatNumber(totals.total)} لاب</span>
           <span className="badge bg-amber-100 text-amber-800">{formatNumber(totals.maintenance)} تحت الصيانة</span>
           {from || to ? (
@@ -253,7 +249,6 @@ export default function Employees() {
             <thead>
               <tr>
                 <th>الموظف</th>
-                <th>عدد الإدخالات</th>
                 <th>عدد اللابات</th>
                 <th>سليم</th>
                 <th>تحت الصيانة</th>
@@ -263,14 +258,14 @@ export default function Employees() {
             <tbody>
               {loading && (
                 <tr>
-                  <td colSpan={6} className="text-center text-slate-400 py-6">
+                  <td colSpan={5} className="text-center text-slate-400 py-6">
                     جاري التحميل…
                   </td>
                 </tr>
               )}
               {!loading && filteredStats.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="text-center text-slate-400 py-6">
+                  <td colSpan={5} className="text-center text-slate-400 py-6">
                     مفيش موظفين مطابقين
                   </td>
                 </tr>
@@ -282,7 +277,6 @@ export default function Employees() {
                   onClick={() => setEmployeeId(employeeId === s.worker.id ? '' : s.worker.id)}
                 >
                   <td data-label="الموظف">{s.worker.full_name ?? '-'}</td>
-                  <td data-label="عدد الإدخالات">{formatNumber(s.entries)}</td>
                   <td data-label="عدد اللابات">{formatNumber(s.total)}</td>
                   <td data-label="سليم">{formatNumber(s.healthy)}</td>
                   <td data-label="تحت الصيانة">
