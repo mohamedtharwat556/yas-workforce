@@ -7,8 +7,8 @@ import { exportXlsxSheets } from '../lib/xlsx'
 
 export default function Employees() {
   const { profile } = useAuth()
-  // زر «حذف الكل» للحسابات فقط (نفس صلاحية دالة fn_delete_all_entries)
-  const isAccountant = profile?.role === 'accountant'
+  // زر «حذف الكل» للمشرف والحسابات (نفس صلاحية دالة fn_delete_all_entries)
+  const canDeleteAll = profile?.role === 'supervisor' || profile?.role === 'accountant'
   const [workers, setWorkers] = useState([])
   const [entries, setEntries] = useState([])
   const [stageMap, setStageMap] = useState({})
@@ -263,7 +263,7 @@ export default function Employees() {
               مسح الفلتر
             </button>
           )}
-          {isAccountant && (
+          {canDeleteAll && (
             <button onClick={deleteAll} disabled={loading} className="btn-danger ms-auto !py-1 !px-2 text-xs">
               حذف الكل
             </button>
