@@ -417,25 +417,19 @@ export default function WorkerDashboard() {
     loadEntries()
   }
 
-  // اللاب رجع من الصيانة → نجهّز بياناته في الفورم عشان الموظف يعمله تست من جديد
-  function retestAgain(row) {
-    setEditingId(null)
-    setForm(
-      emptyForm({
-        entry_date: form.entry_date,
-        serials: [row.serial ?? ''],
-        types: [row.laptop_type ?? ''],
-        models: [row.model ?? ''],
-        destinations: [''],
-        problems: [false],
-      })
-    )
-    setTab('entry')
-    setMsg({
-      type: 'ok',
-      text: `اللاب «${row.serial}» رجع من الصيانة — اختار العملية والعدد وهوظهر في أول خانات اللابات كمسودّة اختبار جديدة.`,
-    })
-    window.scrollTo({ top: 0, behavior: 'smooth' })
+  // اللاب خلص إعادة اختبار وطلع سليم → يتبعت للمشرف على طول (من غير تسجيل إدخال يدوي)
+  async function sendRetest(row) {
+    setMsg(null)
+    setBusyId(row.serial_id)
+    const { error } = await supabase.rpc('fn_worker_send_retest', { p_serial_id: row.serial_id })
+    setBusyId(null)
+    if (error) {
+      setMsg({ type: 'error', text: error.message })
+      return
+    }
+    setMsg({ type: 'ok', text: `تم إرسال اللاب «${row.serial}» للمشرف — اللاب سليم وجاهز للاعتماد.` })
+    loadRetest()
+    loadEntries()
   }
 
   return (
@@ -715,8 +709,8 @@ export default function WorkerDashboard() {
             </p>
           </div>
           <p className="mb-3 rounded-lg bg-slate-50 p-3 text-xs text-slate-500">
-            اللابات اللي المشرف خلّص صيانتها بترجع لك هنا تلقائيًا. دوس «إعادة اختبار» وهيروح لتاب «تسجيل إنتاج» ببيانات
-            اللاب (النوع والموديل والسيريال) عشان تسجّل تست جديد.
+            اللابات اللي المشرف خلّص صيانتها بترجع لك هنا تلقائيًا. لما تعمل لها تست جديد وتبقى سليمة دوس
+            «إرسال للمشرف (سليم)» وهترجع للمشرف على طول عشان يعتمدها.
           </p>
           <div className="table-wrap">
             <table className="table table-cards">
@@ -750,8 +744,12 @@ export default function WorkerDashboard() {
                     </td>
                     <td data-label="اتخلّصت الصيانة">{r.done_at ? formatDate(r.done_at) : '-'}</td>
                     <td data-label="إجراء">
-                      <button onClick={() => retestAgain(r)} className="btn-accent !py-1 !px-3 text-sm">
-                        إعادة اختبار
+                      <button
+                        disabled={busyId === r.serial_id}
+                        onClick={() => sendRetest(r)}
+                        className="btn-accent !py-1 !px-3 text-sm"
+                      >
+                        {busyId === r.serial_id ? '…' : 'إرسال للمشرف (سليم)'}
                       </button>
                     </td>
                   </tr>
