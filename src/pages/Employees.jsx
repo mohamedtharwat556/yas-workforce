@@ -1,10 +1,14 @@
 import { useEffect, useMemo, useState } from 'react'
 import Layout from '../components/Layout'
+import { useAuth } from '../context/AuthContext'
 import { supabase, fetchAll } from '../lib/supabase'
 import { formatDate, formatNumber, toISODate } from '../lib/dates'
 import { exportXlsxSheets } from '../lib/xlsx'
 
 export default function Employees() {
+  const { profile } = useAuth()
+  // زر «حذف الكل» للحسابات فقط (نفس صلاحية دالة fn_delete_all_entries)
+  const isAccountant = profile?.role === 'accountant'
   const [workers, setWorkers] = useState([])
   const [entries, setEntries] = useState([])
   const [stageMap, setStageMap] = useState({})
@@ -177,6 +181,25 @@ export default function Employees() {
     })
   }
 
+  // حذف كل إدخالات الإنتاج في النظام نهائيًا — نفس زر لوحة التحكم (للحسابات فقط)
+  async function deleteAll() {
+    if (
+      !window.confirm(
+        'تحذير: هيتم حذف كل إدخالات الإنتاج في النظام نهائيًا (كل الموظفين وكل الفترات). تكمل؟'
+      )
+    )
+      return
+    if (!window.confirm('تأكيد أخير: مفيش رجوع بعد الحذف. متأكد؟')) return
+    setLoading(true)
+    const { error: err } = await supabase.rpc('fn_delete_all_entries')
+    if (err) {
+      setLoading(false)
+      return window.alert(err.message)
+    }
+    window.alert('تم حذف كل الإدخالات.')
+    await loadAll()
+  }
+
   return (
     <Layout title="الموظفين">
       {error && (
@@ -238,6 +261,11 @@ export default function Employees() {
               className="btn-ghost !py-1 !px-2 text-xs"
             >
               مسح الفلتر
+            </button>
+          )}
+          {isAccountant && (
+            <button onClick={deleteAll} disabled={loading} className="btn-danger ms-auto !py-1 !px-2 text-xs">
+              حذف الكل
             </button>
           )}
         </div>
