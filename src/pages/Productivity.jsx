@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import Layout from '../components/Layout'
 import { supabase } from '../lib/supabase'
 import { formatDate, formatNumber, toISODate, entryOperationNames } from '../lib/dates'
-import { exportXlsxSheets } from '../lib/xlsx'
+import { exportXlsx } from '../lib/xlsx'
 
 // صفحة الإنتاجية (للمشرف فقط): إنتاجية كل موظف على الإدخالات المعتمدة —
 // الاسم + نوع التست + عدد اللابات، وتفصيل كل لاب (نوع اللاب + السيريال)،
@@ -108,21 +108,23 @@ export default function Productivity() {
 
   const totalLaptops = rows.length
 
-  function exportAll() {
-    exportXlsxSheets({
-      filename: `yas-productivity_${toISODate(new Date())}.xlsx`,
-      sheets: [
-        {
-          sheetName: 'إحصائية الموظفين',
-          headers: ['الموظف', 'نوع التست', 'عدد اللابات'],
-          rows: summary.map((r) => [r.name, r.test, r.count]),
-        },
-        {
-          sheetName: 'تفصيل الإنتاجية',
-          headers: ['الموظف', 'التاريخ', 'نوع اللاب', 'نوع التست', 'السيريال'],
-          rows: rows.map((r) => [r.name, r.date, r.laptop_type, r.test, r.serial]),
-        },
-      ],
+  // تصدير جدول إنتاجية الموظفين (الإحصائية)
+  function exportSummary() {
+    exportXlsx({
+      filename: `yas-productivity-summary_${toISODate(new Date())}.xlsx`,
+      sheetName: 'إنتاجية الموظفين',
+      headers: ['الموظف', 'نوع التست', 'عدد اللابات'],
+      rows: summary.map((r) => [r.name, r.test, r.count]),
+    })
+  }
+
+  // تصدير جدول تفصيل اللابات
+  function exportDetails() {
+    exportXlsx({
+      filename: `yas-productivity-laptops_${toISODate(new Date())}.xlsx`,
+      sheetName: 'تفصيل اللابات',
+      headers: ['الموظف', 'التاريخ', 'نوع اللاب', 'نوع التست', 'السيريال'],
+      rows: rows.map((r) => [r.name, r.date, r.laptop_type, r.test, r.serial]),
     })
   }
 
@@ -166,9 +168,6 @@ export default function Productivity() {
           />
         </div>
         <div className="flex gap-2">
-          <button onClick={exportAll} disabled={!rows.length} className="btn-ghost">
-            تصدير Excel
-          </button>
           <button onClick={deleteAll} disabled={busyDelete || !entries.length} className="btn-danger">
             {busyDelete ? '…' : 'حذف الكل'}
           </button>
@@ -176,13 +175,18 @@ export default function Productivity() {
       </div>
 
       <div className="card">
-        <div className="mb-3">
-          <h2 className="font-bold text-lg">إنتاجية الموظفين</h2>
-          <p className="text-xs text-slate-500 mt-0.5">
-            {loading
-              ? 'جاري التحميل…'
-              : `${formatNumber(totalLaptops)} لاب — الإدخالات المعتمدة`}
-          </p>
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h2 className="font-bold text-lg">إنتاجية الموظفين</h2>
+            <p className="text-xs text-slate-500 mt-0.5">
+              {loading
+                ? 'جاري التحميل…'
+                : `${formatNumber(totalLaptops)} لاب — الإدخالات المعتمدة`}
+            </p>
+          </div>
+          <button onClick={exportSummary} disabled={!summary.length} className="btn-ghost !py-1.5 text-sm">
+            تصدير Excel
+          </button>
         </div>
 
         <div className="table-wrap">
@@ -215,7 +219,12 @@ export default function Productivity() {
       </div>
 
       <div className="card mt-4">
-        <h2 className="font-bold text-lg mb-3">تفصيل اللابات</h2>
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <h2 className="font-bold text-lg">تفصيل اللابات</h2>
+          <button onClick={exportDetails} disabled={!rows.length} className="btn-ghost !py-1.5 text-sm">
+            تصدير Excel
+          </button>
+        </div>
         <div className="table-wrap">
           <table className="table table-cards">
             <thead>
