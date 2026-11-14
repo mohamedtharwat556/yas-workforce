@@ -4,7 +4,6 @@ import { useAuth } from '../context/AuthContext'
 
 // أدوار الدخول (بتختار الدور بس، وبعدها تكتب الإيميل والباسورد)
 const ROLES = [
-  { key: 'worker', label: 'موظف' },
   { key: 'supervisor', label: 'مشرف' },
   { key: 'accountant', label: 'حسابات' },
 ]
@@ -116,7 +115,7 @@ export default function Login() {
 
         <div className="border-t border-slate-200 pt-4">
           <p className="text-xs text-slate-400 text-center mb-2">اختر نوع الدخول</p>
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-2 gap-2">
             {ROLES.map((r) => (
               <button
                 key={r.key}

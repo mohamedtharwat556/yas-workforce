@@ -4,46 +4,24 @@ import InstallPrompt from './InstallPrompt'
 import NotificationBell from './NotificationBell'
 
 const NAV = {
-  worker: [
-    { to: '/worker', label: 'إنتاجي اليوم', short: 'إنتاجي' },
-    { to: '/worker/incentives', label: 'تفاصيل إنتاجي', short: 'تفاصيلي' },
-    { to: '/worker/archive', label: 'أرشيف إنتاجي', short: 'أرشيف' },
-  ],
   supervisor: [
     { to: '/supervisor', label: 'لوحة المشرف', short: 'المشرف' },
-    { to: '/supervisor/employees', label: 'الموظفين', short: 'الموظفين' },
+    { to: '/supervisor/employees', label: 'أسماء الموظفين', short: 'الموظفين' },
     { to: '/supervisor/stages', label: 'الوجهات والمراحل', short: 'المراحل' },
-    { to: '/supervisor/accounts', label: 'إدارة الحسابات', short: 'حسابات' },
     { to: '/audit', label: 'سجل الأوديت', short: 'أوديت' },
   ],
   accountant: [
     { to: '/accountant', label: 'التقارير', short: 'تقارير' },
     { to: '/supervisor', label: 'لوحة المشرف', short: 'المشرف' },
-    { to: '/supervisor/employees', label: 'الموظفين', short: 'الموظفين' },
-    { to: '/supervisor/accounts', label: 'إدارة الحسابات', short: 'حسابات' },
     { to: '/management', label: 'لوحة الإدارة', short: 'الإدارة' },
     { to: '/audit', label: 'سجل الأوديت', short: 'أوديت' },
   ],
 }
 
-const ROLE_LABEL = { worker: 'موظف', supervisor: 'مشرف', accountant: 'الحسابات' }
+const ROLE_LABEL = { supervisor: 'مشرف', accountant: 'الحسابات' }
 
 // أيقونات SVG بسيطة لكل مسار
 const ICONS = {
-  '/worker': <path d="M12 5v14M5 12h14" />,
-  '/worker/incentives': (
-    <>
-      <path d="M12 2v20" />
-      <path d="M17 6H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
-    </>
-  ),
-  '/worker/archive': (
-    <>
-      <rect x="3" y="4" width="18" height="4" rx="1" />
-      <path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8" />
-      <path d="M10 12h4" />
-    </>
-  ),
   '/supervisor': (
     <>
       <path d="M12 3l7 4v5c0 4-3 7-7 9-4-2-7-5-7-9V7z" />
@@ -62,12 +40,6 @@ const ICONS = {
     <>
       <path d="M4 6h16M4 12h16M4 18h10" />
       <circle cx="18" cy="18" r="3" />
-    </>
-  ),
-  '/supervisor/accounts': (
-    <>
-      <circle cx="12" cy="8" r="4" />
-      <path d="M4 21c0-4 4-6 8-6s8 2 8 6" />
     </>
   ),
   '/management': (
@@ -120,29 +92,26 @@ export default function Layout({ title, children }) {
               {profile?.full_name} · <span className="font-medium text-white">{ROLE_LABEL[profile?.role] ?? profile?.role}</span>
             </span>
             <NotificationBell />
-            {/* تغيير كلمة المرور متاح للمشرف والحسابات بس — الموظف بياخد باسورده من الإدارة */}
-            {profile?.role !== 'worker' && (
-              <Link
-                to="/password"
-                aria-label="تغيير كلمة المرور"
-                title="تغيير كلمة المرور"
-                className="rounded-lg border border-white/40 bg-white/10 p-2 text-white hover:bg-white/20"
+            <Link
+              to="/password"
+              aria-label="تغيير كلمة المرور"
+              title="تغيير كلمة المرور"
+              className="rounded-lg border border-white/40 bg-white/10 p-2 text-white hover:bg-white/20"
+            >
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="h-5 w-5"
+                aria-hidden="true"
               >
-                <svg
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.8"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  className="h-5 w-5"
-                  aria-hidden="true"
-                >
-                  <circle cx="8" cy="15" r="4" />
-                  <path d="M10.85 12.15 19 4M17 5l2 2M14 8l2 2" />
-                </svg>
-              </Link>
-            )}
+                <circle cx="8" cy="15" r="4" />
+                <path d="M10.85 12.15 19 4M17 5l2 2M14 8l2 2" />
+              </svg>
+            </Link>
             <button
               onClick={signOut}
               className="btn border border-white/40 bg-white/10 !px-3 !py-1 text-sm text-white hover:bg-white/20"

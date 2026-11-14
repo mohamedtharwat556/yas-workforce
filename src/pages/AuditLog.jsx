@@ -11,6 +11,7 @@ const ACTION_LABELS = {
   submit_entry: 'تسليم إدخال',
   'review_entry:approved': 'اعتماد إدخال',
   'review_entry:rejected': 'رفض إدخال',
+  'release_entry:released': 'إصدار إدخال',
   approve_laptop: 'اعتماد لاب',
   'release_laptop:released': 'إصدار لاب',
   'release_laptop:returned': 'إرجاع لاب',
@@ -178,7 +179,7 @@ export default function AuditLog() {
       const { data, error } = await supabase
         .from('production_entries')
         .select(
-          'id, entry_date, quantity, status, stage_code, profiles!production_entries_worker_id_fkey(full_name), operations(name_ar), entry_operations(quantity, operations(name_ar)), lap_serials(serial, laptop_type, model, stage_code, operation_id, operations(name_ar))'
+          'id, entry_date, quantity, status, stage_code, employees!production_entries_worker_id_fkey(full_name), operations(name_ar), entry_operations(quantity, operations(name_ar)), lap_serials(serial, laptop_type, model, stage_code, operation_id, operations(name_ar))'
         )
         .in('status', ['approved', 'released'])
         .gte('entry_date', from)
@@ -189,7 +190,7 @@ export default function AuditLog() {
       const entries = data ?? []
       const out = []
       for (const e of entries) {
-        const worker = e.profiles?.full_name ?? '—'
+        const worker = e.employees?.full_name ?? '—'
         const ops = (
           e.entry_operations?.length
             ? e.entry_operations.map((l) => `${l.operations?.name_ar ?? '—'} (${l.quantity})`)
@@ -237,7 +238,7 @@ export default function AuditLog() {
       const { data, error } = await supabase
         .from('production_entries')
         .select(
-          'id, entry_date, quantity, notes, profiles!production_entries_worker_id_fkey(full_name), operations(name_ar), entry_operations(quantity, operations(name_ar))'
+          'id, entry_date, quantity, notes, employees!production_entries_worker_id_fkey(full_name), operations(name_ar), entry_operations(quantity, operations(name_ar))'
         )
         .in('status', ['approved', 'released'])
         .gte('entry_date', from)
@@ -252,7 +253,7 @@ export default function AuditLog() {
           ? e.entry_operations.reduce((s, l) => s + (l.quantity ?? 0), 0)
           : e.quantity ?? 0
         total += laps
-        const name = e.profiles?.full_name ?? 'غير معروف'
+        const name = e.employees?.full_name ?? 'غير معروف'
         byWorker.set(name, (byWorker.get(name) ?? 0) + laps)
         if (e.notes) notes.push({ worker: name, operation: e.operations?.name_ar ?? '', notes: e.notes })
       }
@@ -483,7 +484,7 @@ function EntryLaptops({ entryId, after, stageMap }) {
         supabase
           .from('production_entries')
           .select(
-            'entry_date, quantity, status, stage_code, notes, profiles!production_entries_worker_id_fkey(full_name, role), operations(name_ar), entry_operations(quantity, operations(name_ar))'
+            'entry_date, quantity, status, stage_code, notes, employees!production_entries_worker_id_fkey(full_name), operations(name_ar), entry_operations(quantity, operations(name_ar))'
           )
           .eq('id', entryId)
           .maybeSingle(),
@@ -506,8 +507,7 @@ function EntryLaptops({ entryId, after, stageMap }) {
 
   // نرجّع للـ payload المسجّل في الأوديت لو الإدخال نفسه مش موجود (اتحذف/اتأرشف)
   const info = entry ?? after ?? {}
-  const worker = info.profiles?.full_name ?? '—'
-  const role = info.profiles?.role ? ` (${VALUE_LABELS[info.profiles.role] ?? info.profiles.role})` : ''
+  const worker = info.employees?.full_name ?? '—'
   const ops = info.entry_operations?.length
     ? info.entry_operations.map((l) => `${l.operations?.name_ar ?? '—'} (${l.quantity})`).join(' · ')
     : info.operations?.name_ar
@@ -525,7 +525,6 @@ function EntryLaptops({ entryId, after, stageMap }) {
           <div className="mb-2 grid gap-x-4 gap-y-1 text-xs text-slate-600 sm:grid-cols-2">
             <p>
               الموظف: <span className="font-semibold text-slate-800">{worker}</span>
-              {role}
             </p>
             <p>تاريخ الإدخال: {info.entry_date ?? '—'}</p>
             <p>العدد: {info.quantity ?? '—'}</p>

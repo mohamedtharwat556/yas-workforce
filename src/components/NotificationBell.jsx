@@ -10,6 +10,7 @@ const TONES = {
   entry_submitted: 'bg-amber-500',
   entry_approved: 'bg-emerald-500',
   entry_returned: 'bg-red-500',
+  entry_released: 'bg-emerald-600',
   laptop_awaiting_release: 'bg-blue-600',
   laptop_released: 'bg-emerald-600',
   laptop_returned: 'bg-red-600',
@@ -18,23 +19,26 @@ const TONES = {
   retest_problem: 'bg-amber-600',
 }
 
-function targetFor(type, role) {
+function targetFor(type) {
   switch (type) {
     case 'entry_submitted':
       return '/supervisor'
     case 'entry_approved':
+      return '/accountant'
     case 'entry_returned':
-      return '/worker'
+      return '/supervisor'
+    case 'entry_released':
+      return '/supervisor'
     case 'laptop_awaiting_release':
       return '/accountant'
     case 'laptop_released':
-      return role === 'worker' ? '/worker/incentives' : '/supervisor'
+      return '/supervisor'
     case 'laptop_returned':
       return '/supervisor'
     case 'month_closed':
-      return role === 'worker' ? '/worker/incentives' : '/accountant'
+      return '/accountant'
     case 'maintenance_done':
-      return '/worker'
+      return '/supervisor'
     case 'retest_problem':
       return '/supervisor'
     default:
@@ -151,7 +155,7 @@ export default function NotificationBell() {
       await supabase.from('notifications').update({ read_at: now }).eq('id', n.id).is('read_at', null)
       load()
     }
-    const to = targetFor(n.type, profile?.role)
+    const to = targetFor(n.type)
     if (to) navigate(to)
   }
 

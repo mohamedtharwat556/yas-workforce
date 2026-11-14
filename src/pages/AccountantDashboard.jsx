@@ -12,6 +12,7 @@ import {
 } from 'recharts'
 import Layout from '../components/Layout'
 import EntryDetails from '../components/EntryDetails'
+import StatusBadge from '../components/StatusBadge'
 import { supabase } from '../lib/supabase'
 import { formatDate, formatNumber, startOfMonth, startOfWeek, toISODate, entryLines, entryOperationNames, entryTotalQty } from '../lib/dates'
 import { printReport } from '../lib/report'
@@ -71,7 +72,7 @@ export default function AccountantDashboard() {
       const from = weekStart < monthStart ? weekStart : monthStart
       const [o, cnt, e, st] = await Promise.all([
         supabase.from('operations').select('*').order('sort_order'),
-        supabase.from('profiles').select('id', { count: 'exact', head: true }).eq('status', 'active'),
+        supabase.from('employees').select('id', { count: 'exact', head: true }).eq('active', true),
         supabase
           .from('production_entries')
           .select('entry_date, quantity, operations(name_ar), entry_operations(quantity, operations(name_ar))')
@@ -109,7 +110,7 @@ export default function AccountantDashboard() {
   useEffect(() => {
     let active = true
     const ENTRY_SELECT =
-      '*, profiles!production_entries_worker_id_fkey(full_name), operations(name_ar), entry_operations(operation_id, quantity, operations(name_ar)), lap_serials(serial, laptop_type, model, stage_code, operation_id, operations(name_ar))'
+      '*, employees!production_entries_worker_id_fkey(full_name), operations(name_ar), entry_operations(operation_id, quantity, operations(name_ar)), lap_serials(serial, laptop_type, model, stage_code, operation_id, operations(name_ar))'
     async function load() {
       setLoading(true)
       const [e, ar] = await Promise.all([
@@ -151,7 +152,7 @@ export default function AccountantDashboard() {
   const workerOptions = useMemo(() => {
     const map = new Map()
     for (const e of entries) {
-      if (!map.has(e.worker_id)) map.set(e.worker_id, e.profiles?.full_name ?? 'غير معروف')
+      if (!map.has(e.worker_id)) map.set(e.worker_id, e.employees?.full_name ?? 'غير معروف')
     }
     return Array.from(map, ([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name, 'ar'))
   }, [entries])
@@ -160,7 +161,7 @@ export default function AccountantDashboard() {
     const map = new Map()
     for (const e of filtered) {
       const id = e.worker_id
-      const name = e.profiles?.full_name ?? 'غير معروف'
+      const name = e.employees?.full_name ?? 'غير معروف'
       const lines = entryLines(e)
       const qty = lines.reduce((s, l) => s + l.quantity, 0)
       if (!map.has(id)) map.set(id, { id, name, laps: 0 })
@@ -212,7 +213,7 @@ export default function AccountantDashboard() {
   const byWorkerOperation = useMemo(() => {
     const map = new Map()
     for (const e of filtered) {
-      const name = e.profiles?.full_name ?? 'غير معروف'
+      const name = e.employees?.full_name ?? 'غير معروف'
       for (const l of entryLines(e)) {
         const key = `${name}||${l.name}`
         if (!map.has(key)) map.set(key, { name, operation: l.name, laps: 0 })
@@ -303,7 +304,7 @@ export default function AccountantDashboard() {
           headers: ['اسم الموظف', 'التاريخ', 'نوع التاست', 'عدد اللابات', 'ملاحظات'],
           rows: filtered.flatMap((e) =>
             entryLines(e).map((l) => [
-              e.profiles?.full_name ?? 'غير معروف',
+              e.employees?.full_name ?? 'غير معروف',
               e.entry_date,
               l.name,
               l.quantity,
@@ -316,7 +317,7 @@ export default function AccountantDashboard() {
           headers: ['اسم الموظف', 'التاريخ', 'نوع اللاب', 'الموديل', 'السيريال', 'الحالة', 'نوع التاست'],
           rows: filtered.flatMap((e) =>
             (e.lap_serials ?? []).map((s) => [
-              e.profiles?.full_name ?? 'غير معروف',
+              e.employees?.full_name ?? 'غير معروف',
               e.entry_date,
               s.laptop_type ?? '—',
               s.model ?? '—',
@@ -338,6 +339,17 @@ export default function AccountantDashboard() {
     if (error) return window.alert(error.message)
     setEntries((prev) => prev.filter((e) => e.id !== entry.id))
     setArchivedEntries((prev) => [entry, ...prev])
+  }
+
+  // إصدار الإدخال: approved → released (القفل النهائي اللي بيحسب الإنتاج)
+  async function releaseEntry(entry) {
+    if (!window.confirm('تأكيد إصدار الإدخال ده؟ هيتقفل نهائيًا ويتحسب في التقارير.')) return
+    setArchiveBusy(entry.id)
+    const { error } = await supabase.rpc('fn_release_entry', { p_entry_id: entry.id })
+    setArchiveBusy(null)
+    if (error) return window.alert(error.message)
+    setEntries((prev) => prev.map((e) => (e.id === entry.id ? { ...e, status: 'released' } : e)))
+    window.alert('تم إصدار الإدخال.')
   }
 
   async function restoreEntry(entry) {
@@ -367,7 +379,7 @@ export default function AccountantDashboard() {
           totals,
           workers: workerStats,
           entries: filtered.map((e) => ({
-            worker: e.profiles?.full_name,
+            worker: e.employees?.full_name,
             operation: entryLines(e)
               .map((l) => `${l.name} × ${l.quantity}`)
               .join(' + '),
@@ -495,7 +507,7 @@ export default function AccountantDashboard() {
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <div>
             <h2 className="font-bold text-lg">
-              {showArchive ? 'الأرشيف' : 'إدخالات معتمدة من المشرف'}{' '}
+              {showArchive ? 'الأرشيف' : 'إدخالات جاهزة للإصدار'}{' '}
               <span className="text-sm font-normal text-slate-400">
                 ({(showArchive ? archivedList : approvedList).length})
               </span>
@@ -503,7 +515,7 @@ export default function AccountantDashboard() {
             <p className="text-xs text-slate-500 mt-0.5">
               {showArchive
                 ? 'الإدخالات المؤرشفة (مش بتتحسب في التقارير).'
-                : 'دي الإدخالات اللي المشرف اعتمدها — تقدر تأرشف اللي مش محتاجه.'}
+                : 'دي الإدخالات اللي المشرف اعتمدها — دوس «إصدار» عشان تتقفل وتتحسب نهائيًا، أو «أرشفة» لو مش محتاجها.'}
             </p>
           </div>
           <button onClick={() => setShowArchive((v) => !v)} className="btn-ghost !py-1.5 text-sm">
@@ -518,7 +530,8 @@ export default function AccountantDashboard() {
                 <th>الموظف</th>
                 <th>العملية</th>
                 <th>العدد</th>
-                <th></th>
+                <th>الحالة</th>
+                <th>إجراء</th>
               </tr>
             </thead>
             <tbody>
@@ -527,13 +540,13 @@ export default function AccountantDashboard() {
                 if (loading)
                   return (
                     <tr>
-                      <td colSpan={5} className="text-center text-slate-400 py-6">جاري التحميل…</td>
+                      <td colSpan={6} className="text-center text-slate-400 py-6">جاري التحميل…</td>
                     </tr>
                   )
                 if (list.length === 0)
                   return (
                     <tr>
-                      <td colSpan={5} className="text-center text-slate-400 py-6">
+                      <td colSpan={6} className="text-center text-slate-400 py-6">
                         {showArchive ? 'مفيش إدخالات في الأرشيف' : 'مفيش إدخالات معتمدة في الفترة دي'}
                       </td>
                     </tr>
@@ -541,9 +554,10 @@ export default function AccountantDashboard() {
                 return list.map((e) => (
                   <tr key={e.id}>
                     <td data-label="التاريخ">{formatDate(e.entry_date)}</td>
-                    <td data-label="الموظف">{e.profiles?.full_name ?? '-'}</td>
+                    <td data-label="الموظف">{e.employees?.full_name ?? '-'}</td>
                     <td data-label="العملية">{entryOperationNames(e)}</td>
                     <td data-label="العدد">{formatNumber(entryTotalQty(e))}</td>
+                    <td data-label="الحالة"><StatusBadge status={e.status} /></td>
                     <td data-label="إجراء" className="whitespace-nowrap">
                       {showArchive ? (
                         <button
@@ -554,13 +568,24 @@ export default function AccountantDashboard() {
                           استرجاع
                         </button>
                       ) : (
-                        <button
-                          disabled={archiveBusy === e.id}
-                          onClick={() => archiveEntry(e)}
-                          className="btn-danger !py-1 !px-2 text-xs"
-                        >
-                          أرشفة
-                        </button>
+                        <div className="flex gap-2">
+                          {e.status === 'approved' && (
+                            <button
+                              disabled={archiveBusy === e.id}
+                              onClick={() => releaseEntry(e)}
+                              className="btn-accent !py-1 !px-3 text-xs"
+                            >
+                              إصدار
+                            </button>
+                          )}
+                          <button
+                            disabled={archiveBusy === e.id}
+                            onClick={() => archiveEntry(e)}
+                            className="btn-danger !py-1 !px-2 text-xs"
+                          >
+                            أرشفة
+                          </button>
+                        </div>
                       )}
                     </td>
                   </tr>

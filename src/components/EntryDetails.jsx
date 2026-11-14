@@ -20,7 +20,7 @@ export default function EntryDetails({ entryId, onClose, onApprove }) {
         supabase
           .from('production_entries')
           .select(
-            '*, profiles!production_entries_worker_id_fkey(full_name), operations(name_ar, name_en), entry_operations(quantity, operations(name_ar, name_en))'
+            '*, employees!production_entries_worker_id_fkey(full_name), operations(name_ar, name_en), entry_operations(quantity, operations(name_ar, name_en))'
           )
           .eq('id', entryId)
           .single(),
@@ -91,7 +91,7 @@ export default function EntryDetails({ entryId, onClose, onApprove }) {
         {entry && (
           <div className="space-y-5">
             <div className="grid grid-cols-2 gap-3 text-sm md:grid-cols-3">
-              <Field label="الموظف" value={entry.profiles?.full_name ?? '-'} />
+              <Field label="الموظف" value={entry.employees?.full_name ?? '-'} />
               <Field label="التاريخ" value={formatDate(entry.entry_date)} />
               <Field label="الحالة" value={<StatusBadge status={entry.status} />} />
               <Field label="العمليات" value={entryOperationNames(entry)} />

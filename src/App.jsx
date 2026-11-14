@@ -5,21 +5,17 @@ import { supabaseConfigured } from './lib/supabase'
 import ProtectedRoute from './components/ProtectedRoute'
 import Login from './pages/Login'
 import Pending from './pages/Pending'
-import WorkerDashboard from './pages/WorkerDashboard'
 
 // تحميل مؤجّل للصفحات التقيلة (رسوم/مشرف/حسابات) عشان الموبايل يحمّل اللي محتاجه بس
-const WorkerIncentives = lazy(() => import('./pages/WorkerIncentives'))
-const WorkerArchive = lazy(() => import('./pages/WorkerArchive'))
 const SupervisorDashboard = lazy(() => import('./pages/SupervisorDashboard'))
 const AccountantDashboard = lazy(() => import('./pages/AccountantDashboard'))
-const EmployeeAccounts = lazy(() => import('./pages/EmployeeAccounts'))
-const Employees = lazy(() => import('./pages/Employees'))
+const EmployeeNames = lazy(() => import('./pages/EmployeeNames'))
 const StagesManage = lazy(() => import('./pages/StagesManage'))
 const ManagementDashboard = lazy(() => import('./pages/ManagementDashboard'))
 const AuditLog = lazy(() => import('./pages/AuditLog'))
 const ChangePassword = lazy(() => import('./pages/ChangePassword'))
 
-// يوجّه المستخدم للشاشة الصح حسب الدور
+// يوجّه المستخدم للشاشة الصح حسب الدور — مفيش دور «موظف» بعد كده
 function HomeRedirect() {
   const { session, profile, loading } = useAuth()
   if (loading) return <div className="p-10 text-center text-slate-500">جاري التحميل…</div>
@@ -28,7 +24,7 @@ function HomeRedirect() {
   if (profile.status !== 'active') return <Navigate to="/pending" replace />
   if (profile.role === 'supervisor') return <Navigate to="/supervisor" replace />
   if (profile.role === 'accountant') return <Navigate to="/accountant" replace />
-  return <Navigate to="/worker" replace />
+  return <Navigate to="/login" replace />
 }
 
 // مكوّن تحميل بسيط يبان أثناء تحميل صفحة مؤجّلة
@@ -52,30 +48,6 @@ export default function App() {
         <Route path="/pending" element={<Pending />} />
 
         <Route
-          path="/worker"
-          element={
-            <ProtectedRoute roles={['worker', 'supervisor']}>
-              <WorkerDashboard />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/worker/incentives"
-          element={
-            <ProtectedRoute roles={['worker', 'supervisor']}>
-              <WorkerIncentives />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/worker/archive"
-          element={
-            <ProtectedRoute roles={['worker']}>
-              <WorkerArchive />
-            </ProtectedRoute>
-          }
-        />
-        <Route
           path="/supervisor"
           element={
             <ProtectedRoute roles={['supervisor', 'accountant']}>
@@ -92,18 +64,10 @@ export default function App() {
           }
         />
         <Route
-          path="/supervisor/accounts"
-          element={
-            <ProtectedRoute roles={['supervisor', 'accountant']}>
-              <EmployeeAccounts />
-            </ProtectedRoute>
-          }
-        />
-        <Route
           path="/supervisor/employees"
           element={
-            <ProtectedRoute roles={['supervisor', 'accountant']}>
-              <Employees />
+            <ProtectedRoute roles={['supervisor']}>
+              <EmployeeNames />
             </ProtectedRoute>
           }
         />

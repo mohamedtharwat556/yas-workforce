@@ -104,7 +104,7 @@ export default function ManagementDashboard() {
     const { data } = await supabase
       .from('production_entries')
       .select(
-        'entry_date, quantity, status, laptop_id, worker_id, profiles!production_entries_worker_id_fkey(full_name), operations(name_ar), entry_operations(quantity, operations(name_ar))'
+        'entry_date, quantity, status, laptop_id, worker_id, employees!production_entries_worker_id_fkey(full_name), operations(name_ar), entry_operations(quantity, operations(name_ar))'
       )
       .gte('entry_date', prevRange.start)
       .lte('entry_date', to)
@@ -166,7 +166,7 @@ export default function ManagementDashboard() {
         d.entries += 1
         byDay.set(e.entry_date, d)
 
-        const name = e.profiles?.full_name ?? 'غير معروف'
+        const name = e.employees?.full_name ?? 'غير معروف'
         const w = byWorker.get(name) ?? { name, qty: 0, entries: 0, laptops: new Set() }
         w.qty += u
         w.entries += 1
