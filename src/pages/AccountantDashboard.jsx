@@ -15,9 +15,9 @@ import Layout from '../components/Layout'
 import EntryDetails from '../components/EntryDetails'
 import StatusBadge from '../components/StatusBadge'
 import { supabase } from '../lib/supabase'
-import { formatDate, formatNumber, startOfMonth, startOfWeek, toISODate, entryLines, entryOperationNames, entryTotalQty } from '../lib/dates'
+import { formatDate, formatNumber, startOfMonth, startOfWeek, toISODate, entryLines, entryOperationNames, entryTotalQty, pivotByWorker } from '../lib/dates'
 import { printReport } from '../lib/report'
-import { exportXlsx, exportXlsxSheets } from '../lib/xlsx'
+import { exportXlsx } from '../lib/xlsx'
 
 // استخراج رسالة الخطأ الحقيقية من دالة Edge لما ترجع حالة غير 2xx
 async function edgeErrorMessage(error) {
@@ -240,6 +240,9 @@ export default function AccountantDashboard() {
     return m
   }, [byWorkerOperation])
 
+  // جدول التصدير بعرض: صف لكل موظف + عمود للإجمالي + عمود لكل نوع تست
+  const byWorkerPivot = useMemo(() => pivotByWorker(byWorkerOperation), [byWorkerOperation])
+
   // بيانات الشارت: كل موظف مقسوم لأنواع التست (بار مركّب لكل نوع بلون مختلف)
   const chartOps = useMemo(
     () => Array.from(new Set(byWorkerOperation.map((r) => r.operation))),
@@ -256,36 +259,6 @@ export default function AccountantDashboard() {
     }
     return Array.from(m.values()).sort((a, b) => b.total - a.total)
   }, [byWorkerOperation])
-
-  // الأساس بتاع شيت الـ Excel: كل لاب على حدة (الموظف × نوع اللاب × نوع التاست × العدد).
-  // بنقرا من سطور اللابات نفسها — سطر اللاب بيتحدّث في مكانه في دورة الصيانة
-  // فمفيش أي احتمال إن اللاب يتحسب مرتين.
-  const laptopRows = useMemo(() => {
-    const map = new Map()
-    for (const e of filtered) {
-      const name = e.employees?.full_name ?? 'غير معروف'
-      const serials = e.lap_serials ?? []
-      if (!serials.length) {
-        // إدخال قديم من غير سطور لابات مسجّلة
-        for (const l of entryLines(e)) {
-          const key = `${name}||—||${l.name}`
-          if (!map.has(key)) map.set(key, { name, laptop_type: '—', test: l.name, count: 0 })
-          map.get(key).count += l.quantity
-        }
-        continue
-      }
-      for (const s of serials) {
-        const laptopType = s.laptop_type || '—'
-        const test = s.operations?.name_ar ?? e.operations?.name_ar ?? '—'
-        const key = `${name}||${laptopType}||${test}`
-        if (!map.has(key)) map.set(key, { name, laptop_type: laptopType, test, count: 0 })
-        map.get(key).count += 1
-      }
-    }
-    return Array.from(map.values()).sort(
-      (a, b) => a.name.localeCompare(b.name, 'ar') || b.count - a.count
-    )
-  }, [filtered])
 
   // الاتجاه اليومي
   const byDay = useMemo(() => {
@@ -307,11 +280,10 @@ export default function AccountantDashboard() {
   )
 
   function exportCSV() {
-    const head = ['#', 'اسم الموظف', 'نوع التاست', 'عدد اللابات']
-    const body = byWorkerOperation.map((r, i) => [i + 1, r.name, r.operation, r.laps])
+    const summary = pivotByWorker(byWorkerOperation)
     const csv =
       '\uFEFF' +
-      [head, ...body]
+      [summary.headers, ...summary.rows]
         .map((line) => line.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(','))
         .join('\r\n')
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
@@ -325,13 +297,32 @@ export default function AccountantDashboard() {
     URL.revokeObjectURL(url)
   }
 
-  // شيت Excel: بيانات خالص من غير أي إجمالي أو عناوين — الموظف + نوع اللاب + نوع التاست + العدد
+  // شيت Excel واحد: بلوك إنتاجية الموظفين (جدول بعرض) + بلوك تفصيل كل لاب بالسيريال.
   function exportExcel() {
     exportXlsx({
       filename: `yas-report_${range.start}_${range.end}.xlsx`,
-      sheetName: 'التقرير',
-      headers: ['الموظف', 'نوع اللاب', 'نوع التاست', 'العدد'],
-      rows: laptopRows.map((r) => [r.name, r.laptop_type, r.test, r.count]),
+      sheetName: 'تقرير الإنتاجية',
+      blocks: [
+        {
+          title: 'إنتاجية الموظفين',
+          headers: byWorkerPivot.headers,
+          rows: byWorkerPivot.rows,
+        },
+        {
+          title: 'تفصيل اللابات',
+          headers: ['الموظف', 'التاريخ', 'نوع اللاب', 'الموديل', 'السيريال', 'نوع التست'],
+          rows: filtered.flatMap((e) =>
+            (e.lap_serials ?? []).map((s) => [
+              e.employees?.full_name ?? 'غير معروف',
+              e.entry_date,
+              s.laptop_type ?? '—',
+              s.model ?? '—',
+              s.serial,
+              s.operations?.name_ar ?? '—',
+            ])
+          ),
+        },
+      ],
     })
   }
 
@@ -345,20 +336,20 @@ export default function AccountantDashboard() {
     })
   }
 
-  // شيت Excel: جدول بيانات خالص — الأساس موظف × نوع التاست × عدد اللابات،
-  // + تفصيل الإدخالات، + تفصيل كل لاب. من غير أي عناوين أو نص زيادة.
+  // شيت Excel واحد فيه كل حاجة: بلوك إنتاجية الموظفين + بلوك تفصيل الإدخالات + بلوك تفصيل اللابات.
   function exportAiExcel() {
-    exportXlsxSheets({
+    exportXlsx({
       filename: `yas-ai-report_${range.start}_${range.end}.xlsx`,
-      sheets: [
+      sheetName: 'التقرير',
+      blocks: [
         {
-          sheetName: 'ملخّص الموظفين',
-          headers: ['الموظف', 'نوع اللاب', 'نوع التاست', 'العدد'],
-          rows: laptopRows.map((r) => [r.name, r.laptop_type, r.test, r.count]),
+          title: 'إنتاجية الموظفين',
+          headers: byWorkerPivot.headers,
+          rows: byWorkerPivot.rows,
         },
         {
-          sheetName: 'تفصيل الإدخالات',
-          headers: ['اسم الموظف', 'التاريخ', 'نوع التاست', 'عدد اللابات', 'ملاحظات'],
+          title: 'تفصيل الإدخالات',
+          headers: ['اسم الموظف', 'التاريخ', 'نوع التست', 'عدد اللابات', 'ملاحظات'],
           rows: filtered.flatMap((e) =>
             entryLines(e).map((l) => [
               e.employees?.full_name ?? 'غير معروف',
@@ -370,8 +361,8 @@ export default function AccountantDashboard() {
           ),
         },
         {
-          sheetName: 'تفصيل اللابات',
-          headers: ['اسم الموظف', 'التاريخ', 'نوع اللاب', 'الموديل', 'السيريال', 'الحالة', 'نوع التاست'],
+          title: 'تفصيل اللابات',
+          headers: ['اسم الموظف', 'التاريخ', 'نوع اللاب', 'الموديل', 'السيريال', 'الحالة', 'نوع التست'],
           rows: filtered.flatMap((e) =>
             (e.lap_serials ?? []).map((s) => [
               e.employees?.full_name ?? 'غير معروف',
@@ -524,7 +515,7 @@ export default function AccountantDashboard() {
           {range.start} ← {range.end}
         </div>
         <div className="flex-1" />
-        <button onClick={exportExcel} disabled={laptopRows.length === 0} className="btn-ghost">
+        <button onClick={exportExcel} disabled={filtered.length === 0} className="btn-ghost">
           تصدير Excel
         </button>
         <button onClick={exportPDF} disabled={rows.length === 0} className="btn-accent">

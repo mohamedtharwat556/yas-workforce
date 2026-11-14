@@ -13,7 +13,7 @@ import {
 import Layout from '../components/Layout'
 import StatusBadge from '../components/StatusBadge'
 import { supabase } from '../lib/supabase'
-import { formatDate, formatNumber, startOfMonth, toISODate, entryTotalQty } from '../lib/dates'
+import { formatDate, formatNumber, startOfMonth, toISODate, entryLines, entryTotalQty, pivotByWorker } from '../lib/dates'
 import { exportXlsx } from '../lib/xlsx'
 import { printReport } from '../lib/report'
 
@@ -212,10 +212,41 @@ export default function ManagementDashboard() {
   const rejectionRate = cur.total ? (rejected / cur.total) * 100 : 0
   const unitsDelta = pct(cur.qty, pc.qty)
 
+  // تفصيل كل موظف على أنواع التست في الفترة الحالية (للتصدير)
+  const workerPivot = useMemo(() => {
+    const rows = []
+    for (const e of entries) {
+      if (e.entry_date < from || e.entry_date > to) continue
+      const name = e.employees?.full_name ?? 'غير معروف'
+      for (const l of entryLines(e)) rows.push({ name, operation: l.name, laps: l.quantity })
+    }
+    return pivotByWorker(rows)
+  }, [entries, from, to])
+
+  // تفصيل كل لاب (بالسيريال ونوع اللاب) في الفترة الحالية (للتصدير)
+  const laptopDetail = useMemo(() => {
+    const rows = []
+    for (const e of entries) {
+      if (e.entry_date < from || e.entry_date > to) continue
+      const name = e.employees?.full_name ?? 'غير معروف'
+      for (const s of e.lap_serials ?? []) {
+        rows.push([
+          name,
+          e.entry_date,
+          s.laptop_type ?? '—',
+          s.model ?? '—',
+          s.serial,
+          s.operations?.name_ar ?? '—',
+        ])
+      }
+    }
+    return rows
+  }, [entries, from, to])
+
   function exportExcel() {
     exportXlsx({
       filename: `yas-management_${from}_${to}.xlsx`,
-      sheetName: 'الإدارة',
+      sheetName: 'تقرير الإدارة',
       title: 'تقرير الإدارة — الإنتاجية',
       meta: [
         [`الفترة: ${from} ← ${to}`],
@@ -223,9 +254,18 @@ export default function ManagementDashboard() {
         [`إجمالي العدد: ${formatNumber(cur.qty)}`],
         [`معدّل الرفض: ${formatNumber(rejectionRate)}%`],
       ],
-      headers: ['#', 'الموظف', 'عدد اللابات', 'إجمالي العدد'],
-      rows: cur.workers.map((r, i) => [i + 1, r.name, r.laps, r.qty]),
-      footer: ['', 'الإجمالي', cur.laps, cur.qty],
+      blocks: [
+        {
+          title: 'إنتاجية الموظفين',
+          headers: workerPivot.headers,
+          rows: workerPivot.rows,
+        },
+        {
+          title: 'تفصيل اللابات',
+          headers: ['الموظف', 'التاريخ', 'نوع اللاب', 'الموديل', 'السيريال', 'نوع التست'],
+          rows: laptopDetail,
+        },
+      ],
     })
   }
 

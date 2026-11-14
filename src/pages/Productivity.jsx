@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import Layout from '../components/Layout'
 import { supabase } from '../lib/supabase'
-import { formatDate, formatNumber, toISODate, entryOperationNames } from '../lib/dates'
+import { formatDate, formatNumber, toISODate, entryOperationNames, pivotByWorker } from '../lib/dates'
 import { exportXlsx } from '../lib/xlsx'
 
 // صفحة الإنتاجية (للمشرف فقط): إنتاجية كل موظف على الإدخالات المعتمدة —
@@ -113,14 +113,17 @@ export default function Productivity() {
   const exportMeta = empName ? [[`الموظف: ${empName}`]] : []
   const fileSuffix = empName ? `-${empName}` : ''
 
-  // تصدير جدول إنتاجية الموظفين (الإحصائية)
+  // تصدير إنتاجية الموظفين (جدول بعرض: عمود لكل نوع تست + عمود الإجمالي)
   function exportSummary() {
+    const pivot = pivotByWorker(
+      summary.map((r) => ({ name: r.name, operation: r.test, laps: r.count }))
+    )
     exportXlsx({
       filename: `yas-productivity-summary${fileSuffix}_${toISODate(new Date())}.xlsx`,
       sheetName: 'إنتاجية الموظفين',
       meta: exportMeta,
-      headers: ['الموظف', 'نوع التست', 'عدد اللابات'],
-      rows: summary.map((r) => [r.name, r.test, r.count]),
+      headers: pivot.headers,
+      rows: pivot.rows,
     })
   }
 

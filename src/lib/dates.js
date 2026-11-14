@@ -62,3 +62,26 @@ export function entryOperationNames(entry) {
 export function formatNumber(n) {
   return new Intl.NumberFormat('ar-EG-u-nu-latn', { maximumFractionDigits: 2 }).format(Number(n) || 0)
 }
+
+// جدول بعرض للتصدير: صف لكل موظف + عمود للإجمالي + عمود لكل نوع تست.
+// كل نوع تست بيتجمّع على حدة حتى لو الموظف عمله على أكتر من يوم.
+// rows: [{ name, operation, laps }] → { headers, rows }
+export function pivotByWorker(rows, { nameLabel = 'الموظف', totalLabel = 'عدد اللابات' } = {}) {
+  const workers = new Map()
+  const ops = []
+  for (const r of rows) {
+    const op = r.operation ?? '—'
+    if (!ops.includes(op)) ops.push(op)
+    const w = workers.get(r.name) ?? { name: r.name, total: 0, byOp: new Map() }
+    const n = Number(r.laps ?? 0)
+    w.total += n
+    w.byOp.set(op, (w.byOp.get(op) ?? 0) + n)
+    workers.set(r.name, w)
+  }
+  return {
+    headers: [nameLabel, totalLabel, ...ops],
+    rows: Array.from(workers.values())
+      .sort((a, b) => b.total - a.total)
+      .map((w) => [w.name, w.total, ...ops.map((op) => w.byOp.get(op) ?? 0)]),
+  }
+}
