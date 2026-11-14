@@ -108,11 +108,17 @@ export default function Productivity() {
 
   const totalLaptops = rows.length
 
+  // اسم الموظف المختار (لو في فلتر) — بيتحطّ في اسم الملف وجوّه الشيت
+  const empName = employees.find((e) => e.id === empFilter)?.full_name ?? ''
+  const exportMeta = empName ? [[`الموظف: ${empName}`]] : []
+  const fileSuffix = empName ? `-${empName}` : ''
+
   // تصدير جدول إنتاجية الموظفين (الإحصائية)
   function exportSummary() {
     exportXlsx({
-      filename: `yas-productivity-summary_${toISODate(new Date())}.xlsx`,
+      filename: `yas-productivity-summary${fileSuffix}_${toISODate(new Date())}.xlsx`,
       sheetName: 'إنتاجية الموظفين',
+      meta: exportMeta,
       headers: ['الموظف', 'نوع التست', 'عدد اللابات'],
       rows: summary.map((r) => [r.name, r.test, r.count]),
     })
@@ -121,8 +127,9 @@ export default function Productivity() {
   // تصدير جدول تفصيل اللابات
   function exportDetails() {
     exportXlsx({
-      filename: `yas-productivity-laptops_${toISODate(new Date())}.xlsx`,
+      filename: `yas-productivity-laptops${fileSuffix}_${toISODate(new Date())}.xlsx`,
       sheetName: 'تفصيل اللابات',
+      meta: exportMeta,
       headers: ['الموظف', 'التاريخ', 'نوع اللاب', 'نوع التست', 'السيريال'],
       rows: rows.map((r) => [r.name, r.date, r.laptop_type, r.test, r.serial]),
     })
@@ -148,7 +155,7 @@ export default function Productivity() {
     <Layout title="الإنتاجية">
       <div className="card mb-4 flex flex-wrap items-end gap-3">
         <div className="w-full sm:w-auto">
-          <label className="label">الموظف</label>
+          <label className="label">الموظف (بيفلتر الجداول والإكسل)</label>
           <select className="input w-48" value={empFilter} onChange={(e) => setEmpFilter(e.target.value)}>
             <option value="">كل الموظفين</option>
             {employees.map((emp) => (
