@@ -13,6 +13,7 @@ const NAV = {
   ],
   accountant: [
     { to: '/accountant', label: 'التقارير', short: 'تقارير' },
+    { to: '/accountant/sheet-analysis', label: 'تحليل شيت AI', short: 'تحليل AI' },
     { to: '/supervisor', label: 'لوحة المشرف', short: 'المشرف' },
     { to: '/management', label: 'لوحة الإدارة', short: 'الإدارة' },
     { to: '/audit', label: 'سجل الأوديت', short: 'أوديت' },
@@ -30,6 +31,13 @@ const ICONS = {
     </>
   ),
   '/accountant': <path d="M4 20V10M10 20V4M16 20v-7M21 20H3" />,
+  '/accountant/sheet-analysis': (
+    <>
+      <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" />
+      <path d="M14 3v5h5" />
+      <path d="M9 13h6M9 17h4" />
+    </>
+  ),
   '/supervisor/employees': (
     <>
       <circle cx="9" cy="8" r="3.2" />

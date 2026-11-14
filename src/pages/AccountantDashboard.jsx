@@ -225,6 +225,36 @@ export default function AccountantDashboard() {
     )
   }, [filtered])
 
+  // الأساس بتاع شيت الـ Excel: كل لاب على حدة (الموظف × نوع اللاب × نوع التاست × العدد).
+  // بنقرا من سطور اللابات نفسها — سطر اللاب بيتحدّث في مكانه في دورة الصيانة
+  // فمفيش أي احتمال إن اللاب يتحسب مرتين.
+  const laptopRows = useMemo(() => {
+    const map = new Map()
+    for (const e of filtered) {
+      const name = e.employees?.full_name ?? 'غير معروف'
+      const serials = e.lap_serials ?? []
+      if (!serials.length) {
+        // إدخال قديم من غير سطور لابات مسجّلة
+        for (const l of entryLines(e)) {
+          const key = `${name}||—||${l.name}`
+          if (!map.has(key)) map.set(key, { name, laptop_type: '—', test: l.name, count: 0 })
+          map.get(key).count += l.quantity
+        }
+        continue
+      }
+      for (const s of serials) {
+        const laptopType = s.laptop_type || '—'
+        const test = s.operations?.name_ar ?? e.operations?.name_ar ?? '—'
+        const key = `${name}||${laptopType}||${test}`
+        if (!map.has(key)) map.set(key, { name, laptop_type: laptopType, test, count: 0 })
+        map.get(key).count += 1
+      }
+    }
+    return Array.from(map.values()).sort(
+      (a, b) => a.name.localeCompare(b.name, 'ar') || b.count - a.count
+    )
+  }, [filtered])
+
   // الاتجاه اليومي
   const byDay = useMemo(() => {
     const map = new Map()
@@ -263,17 +293,13 @@ export default function AccountantDashboard() {
     URL.revokeObjectURL(url)
   }
 
+  // شيت Excel: بيانات خالص من غير أي إجمالي أو عناوين — الموظف + نوع اللاب + نوع التاست + العدد
   function exportExcel() {
-    // الأساس: كل موظف × نوع التاست × عدد اللابات — جدول بيانات خالص من غير عناوين
-    const head = ['#', 'اسم الموظف', 'نوع التاست', 'عدد اللابات']
-    const body = byWorkerOperation.map((r, i) => [i + 1, r.name, r.operation, r.laps])
-    const opBody = byOperation.map((o) => [o.name, o.laps])
     exportXlsx({
       filename: `yas-report_${range.start}_${range.end}.xlsx`,
       sheetName: 'التقرير',
-      headers: head,
-      rows: [...body, [], ['الإجمالي حسب نوع التاست', ''], ['نوع التاست', 'عدد اللابات'], ...opBody],
-      footer: ['', '', 'الإجمالي', totals.laps],
+      headers: ['الموظف', 'نوع اللاب', 'نوع التاست', 'العدد'],
+      rows: laptopRows.map((r) => [r.name, r.laptop_type, r.test, r.count]),
     })
   }
 
@@ -295,9 +321,8 @@ export default function AccountantDashboard() {
       sheets: [
         {
           sheetName: 'ملخّص الموظفين',
-          headers: ['#', 'اسم الموظف', 'نوع التاست', 'عدد اللابات'],
-          rows: byWorkerOperation.map((r, i) => [i + 1, r.name, r.operation, r.laps]),
-          footer: ['', '', 'الإجمالي', totals.laps],
+          headers: ['الموظف', 'نوع اللاب', 'نوع التاست', 'العدد'],
+          rows: laptopRows.map((r) => [r.name, r.laptop_type, r.test, r.count]),
         },
         {
           sheetName: 'تفصيل الإدخالات',
@@ -467,7 +492,7 @@ export default function AccountantDashboard() {
           {range.start} ← {range.end}
         </div>
         <div className="flex-1" />
-        <button onClick={exportExcel} disabled={rows.length === 0} className="btn-ghost">
+        <button onClick={exportExcel} disabled={laptopRows.length === 0} className="btn-ghost">
           تصدير Excel
         </button>
         <button onClick={exportPDF} disabled={rows.length === 0} className="btn-accent">

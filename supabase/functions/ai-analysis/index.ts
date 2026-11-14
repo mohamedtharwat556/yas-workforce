@@ -24,7 +24,7 @@ function json(payload: unknown, status = 200) {
 const GEMINI_TIMEOUT_MS = 70000
 
 // نداء موديل واحد مع مهلة زمنية — يرجّع إمّا الملخص أو خطأ واضح (بدون ما يعلّق الدالة)
-async function callGemini(model: string, key: string, prompt: string) {
+async function callGemini(model: string, key: string, prompt: string, systemText: string) {
   const ctrl = new AbortController()
   const timer = setTimeout(() => ctrl.abort(), GEMINI_TIMEOUT_MS)
   try {
@@ -35,7 +35,7 @@ async function callGemini(model: string, key: string, prompt: string) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           systemInstruction: {
-            parts: [{ text: 'أنت محلل بيانات دقيق ومختصر، تكتب بالعربية.' }],
+            parts: [{ text: systemText }],
           },
           contents: [{ role: 'user', parts: [{ text: prompt }] }],
           generationConfig: { temperature: 0.3 },
@@ -87,6 +87,49 @@ ${JSON.stringify(workers ?? [])}
 ${notes || '(لا توجد ملاحظات)'}`
 }
 
+// أعلى عدد صفوف بتُحلَّل من الشيت المرفوع + أطول خانة بتتبعت للموديل
+const SHEET_MAX_ROWS = 800
+const SHEET_MAX_CELL = 80
+
+// برومبت تحليل شيت Excel مرفوع من المحاسب — بيعتمد على بيانات الشيت نفسها بس
+function buildSheetPrompt(sheet: any): string {
+  const headers: string[] = (sheet?.headers ?? []).map((h: any) => String(h ?? '').trim())
+  const rows: any[][] = sheet?.rows ?? []
+  const totalRows = Number(sheet?.totalRows ?? rows.length)
+  const used = rows.slice(0, SHEET_MAX_ROWS)
+
+  const cell = (v: any) => {
+    const s = v === null || v === undefined ? '' : String(v)
+    return s.length > SHEET_MAX_CELL ? `${s.slice(0, SHEET_MAX_CELL)}…` : s
+  }
+  const table = used
+    .map((r, i) => `${i + 1}) ` + headers.map((_, ci) => cell(r?.[ci])).join(' | '))
+    .join('\n')
+
+  return `حلّل شيت Excel المرفوع تحليل شامل وكامل، بالعربي، واعتماد حصري على البيانات اللي تحت (ممنوع تألّف أي رقم مش موجود).
+
+معلومات الملف:
+- اسم الملف: ${sheet?.filename ?? '—'}
+- اسم الورقة: ${sheet?.sheetName ?? '—'}
+- عدد الأعمدة: ${headers.length}
+- أسماء الأعمدة: ${headers.length ? headers.join(' | ') : '(بدون رؤوس أعمدة)'}
+- عدد الصفوف الكلي: ${totalRows}${totalRows > used.length ? ` (هيتم تحليل أول ${used.length} صف)` : ''}
+
+المطلوب في التقرير:
+1) ملخّص عام: الشيت بيتكلم عن إيه، إجمالي عدد السجلات، والأعمدة المهمة.
+2) تحليل رقمي للأعمدة المهمة: الإجماليات والمتوسطات وأعلى وأقل القيم (اكتب الأرقام الفعلية اللي شفتها).
+3) التوزيعات: أهم التصنيفات (مثلًا كل مندوب/نوع/فرع) وترتيبها بالعدد أو بالقيمة.
+4) أنماط وملاحظات مهمة (فروق، اتجاهات، تكرارات).
+5) مشاكل أو شبهات في البيانات: صفوف ناقصة، قيم شاذة، تكرار، تعارض أرقام، أخطاء محتملة.
+6) توصيات عملية واضحة ومحدّدة.
+
+لو في أرقام مالية في الشيت اتعامل معاها عادي وحلّلها بالتفصيل.
+اكتب بأرقام دقيقة من الشيت نفسه، ولو عمود مش واضح قول إنه غير واضح بدل ما تخمّن.
+
+بيانات الشيت (كل صف: قيم الأعمدة بنفس الترتيب):
+${table || '(الشيت فاضي)'}`
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS })
 
@@ -116,7 +159,13 @@ Deno.serve(async (req) => {
     }
 
     const body = await req.json()
-    const prompt = buildPrompt(body)
+
+    // وضعين: «تحليل الشيت المرفوع» (mode=sheet) أو «تحليل فترة الإنتاج» (الافتراضي)
+    const isSheet = body?.mode === 'sheet' || (!!body?.sheet && Array.isArray(body?.sheet?.rows))
+    const prompt = isSheet ? buildSheetPrompt(body.sheet) : buildPrompt(body)
+    const systemText = isSheet
+      ? 'أنت محلل بيانات محترف ودقيق، بتكتب بالعربية، وبتحلل أرقام حقيقية من الجداول من غير أي تخمين.'
+      : 'أنت محلل بيانات دقيق ومختصر، تكتب بالعربية.'
 
     // 3) نداء الموديل (Google Gemini) — مع مهلة وإعادة محاولة وموديل بديل لو السيرفر مزحوم
     const preferred = Deno.env.get('GEMINI_MODEL') ?? 'gemini-3.8-flash'
@@ -127,7 +176,7 @@ Deno.serve(async (req) => {
     outer: for (const model of models) {
       const attempts = 1
       for (let attempt = 0; attempt < attempts; attempt++) {
-        const r = await callGemini(model, geminiKey, prompt)
+        const r = await callGemini(model, geminiKey, prompt, systemText)
         if (r.ok) {
           summary = r.summary
           break outer
@@ -147,10 +196,12 @@ Deno.serve(async (req) => {
 
     // 4) خزّن التقرير
     await admin.from('ai_insights').insert({
-      period_start: body?.period?.start ?? null,
-      period_end: body?.period?.end ?? null,
-      scope: 'period',
-      content: { summary, totals: body?.totals ?? null },
+      period_start: isSheet ? null : body?.period?.start ?? null,
+      period_end: isSheet ? null : body?.period?.end ?? null,
+      scope: isSheet ? 'sheet' : 'period',
+      content: isSheet
+        ? { summary, filename: body?.sheet?.filename ?? null, sheetName: body?.sheet?.sheetName ?? null }
+        : { summary, totals: body?.totals ?? null },
     })
 
     return json({ summary })
