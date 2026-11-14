@@ -49,6 +49,8 @@ function cellValue(v) {
 const COUNT_WORDS = ['عدد', 'العدد', 'كمية', 'الكمية', 'اجمالي', 'إجمالي', 'اجمالى', 'قيمة', 'total', 'count', 'qty', 'quantity']
 const LAP_WORDS = ['لاب', 'لابات', 'laptop', 'laptops']
 const GROUP_WORDS = ['اسم', 'موظف', 'مندوب', 'نوع', 'فرع', 'قسم', 'حالة', 'محل', 'صنف', 'ماركة', 'name', 'type', 'branch', 'status', 'category']
+// كلمات بتدل على إن العمود فيه أسماء الأشخاص/الموظفين
+const EMP_WORDS = ['اسم', 'موظف', 'مندوب', 'عامل', 'فني', 'مشغل', 'موظفين', 'employee', 'worker', 'staff', 'name', 'tech', 'operator']
 
 function hasWord(label, words) {
   const s = String(label ?? '').toLowerCase()
@@ -270,7 +272,10 @@ export default function SheetAnalysis() {
       }
     }
 
-    return { numCols, catCols, auto, dateCol, alerts }
+    // عمود الأسماء (الموظف/العامل) — لو موجود بنرتّب بيه الإنتاجية
+    const empCol = catCols.find((c) => hasWord(c.label, EMP_WORDS)) ?? catCols[0] ?? null
+
+    return { numCols, catCols, auto, dateCol, empCol, alerts }
   }, [headers, bodyRows])
 
   // العمود المختار للتجميع (لو المستخدم غيّره) وإلا الافتراضي
@@ -316,7 +321,21 @@ export default function SheetAnalysis() {
         .map(([k, value]) => ({ name: monthLabel(k), value }))
     }
 
-    return { bars, donut, trend }
+    // ترتيب الموظفين بالإنتاجية (إجمالي قيمة عمود العدد لكل شخص)
+    let workers = []
+    if (stats.empCol) {
+      const m = new Map()
+      for (const r of bodyRows) {
+        const key = String(r?.[stats.empCol.index] ?? '').trim() || '(فاضي)'
+        const cur = m.get(key) ?? { name: key, value: 0, rows: 0 }
+        cur.value += valueOf(r)
+        cur.rows += 1
+        m.set(key, cur)
+      }
+      workers = [...m.values()].sort((a, b) => b.value - a.value)
+    }
+
+    return { bars, donut, trend, workers }
   }, [bodyRows, stats, activeCount])
 
   async function runAI() {
@@ -381,6 +400,13 @@ export default function SheetAnalysis() {
         sheetName: safeName(b.col.label),
         headers: [b.col.label, valueName],
         rows: b.data.map((d) => [d.name, round2(d.value)]),
+      })
+    }
+    if (visuals.workers.length) {
+      sheets.push({
+        sheetName: 'ترتيب الإنتاجية',
+        headers: ['#', stats.empCol ? stats.empCol.label : 'الاسم', activeCount ? valueName : 'عدد السجلات', 'عدد السجلات'],
+        rows: visuals.workers.map((w, i) => [i + 1, w.name, round2(w.value), w.rows]),
       })
     }
     if (visuals.trend.length) {
@@ -540,6 +566,61 @@ export default function SheetAnalysis() {
                       </li>
                     ))}
                   </ul>
+                </div>
+              )}
+
+              {visuals.workers.length > 1 && stats.empCol && (
+                <div className="card mb-4">
+                  <h2 className="mb-1 font-bold text-lg">
+                    ترتيب الإنتاجية حسب «{stats.empCol.label}»
+                  </h2>
+                  <p className="mb-3 text-xs text-slate-500">
+                    الأعلى إنتاجية: <span className="font-bold text-blue-700">{visuals.workers[0].name}</span>{' '}
+                    بـ {formatNumber(visuals.workers[0].value)} {activeCount ? `من ${valueName}` : 'سجل'}
+                    {' '}— من إجمالي {formatNumber(visuals.workers.length)} اسم.
+                  </p>
+                  <div style={{ width: '100%', height: Math.min(420, 60 + visuals.workers.slice(0, 10).length * 38) }}>
+                    <ResponsiveContainer>
+                      <BarChart
+                        layout="vertical"
+                        data={visuals.workers.slice(0, 10)}
+                        margin={{ top: 10, right: 30, left: 10, bottom: 10 }}
+                      >
+                        <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+                        <XAxis type="number" tick={{ fontSize: 12 }} />
+                        <YAxis type="category" dataKey="name" width={120} tick={{ fontSize: 12 }} />
+                        <Tooltip />
+                        <Bar dataKey="value" fill="#0891b2" radius={[0, 4, 4, 0]} name={valueName}>
+                          {visuals.workers.slice(0, 10).map((w, i) => (
+                            <Cell key={w.name} fill={i === 0 ? '#1d4ed8' : '#0891b2'} />
+                          ))}
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+
+                  <div className="table-wrap mt-4">
+                    <table className="table">
+                      <thead>
+                        <tr>
+                          <th>#</th>
+                          <th>{stats.empCol.label}</th>
+                          <th>{activeCount ? valueName : 'عدد السجلات'}</th>
+                          <th>عدد السجلات</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {visuals.workers.map((w, i) => (
+                          <tr key={w.name} className={i === 0 ? 'font-bold text-blue-700' : ''}>
+                            <td>{formatNumber(i + 1)}</td>
+                            <td>{w.name}</td>
+                            <td>{formatNumber(w.value)}</td>
+                            <td>{formatNumber(w.rows)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               )}
 
