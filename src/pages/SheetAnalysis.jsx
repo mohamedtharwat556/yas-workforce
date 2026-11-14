@@ -4,6 +4,12 @@ import {
   Bar,
   BarChart,
   CartesianGrid,
+  Cell,
+  Legend,
+  Line,
+  LineChart,
+  Pie,
+  PieChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -12,6 +18,7 @@ import {
 import Layout from '../components/Layout'
 import { supabase } from '../lib/supabase'
 import { formatNumber } from '../lib/dates'
+import { exportXlsxSheets } from '../lib/xlsx'
 
 // أقصى عدد صفوف بتُرسل للتحليل (عشان الملفات الكبيرة ما تعلّقش الدالة)
 const MAX_ROWS = 800
@@ -60,6 +67,26 @@ function toNumber(v) {
 
 function colLabel(h, i) {
   return String(h ?? '').trim() || `عمود ${i + 1}`
+}
+
+const MONTHS_AR = ['يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو', 'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر']
+const PIE_COLORS = ['#1d4ed8', '#0891b2', '#059669', '#d97706', '#7c3aed', '#64748b']
+
+function monthLabel(key) {
+  const [y, m] = key.split('-')
+  return `${MONTHS_AR[Number(m) - 1] ?? m} ${y}`
+}
+
+// بنعتبر الخانة تاريخ لو كانت تاريخ فعلي (نوع Date) أو نص بتنسيق تاريخ معروف
+function toDate(v) {
+  if (v instanceof Date && !Number.isNaN(v.getTime())) return v
+  if (typeof v !== 'string') return null
+  const s = v.trim()
+  let m = s.match(/^(\d{4})[-/](\d{1,2})(?:[-/](\d{1,2}))?$/)
+  if (m) return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3] ?? 1))
+  m = s.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/)
+  if (m) return new Date(Number(m[3]), Number(m[2]) - 1, Number(m[1]))
+  return null
 }
 
 export default function SheetAnalysis() {
@@ -143,6 +170,8 @@ export default function SheetAnalysis() {
       const label = colLabel(h, i)
       let filled = 0
       let nums = 0
+      let neg = 0
+      let dates = 0
       let sum = 0
       let max = -Infinity
       let min = Infinity
@@ -156,9 +185,11 @@ export default function SheetAnalysis() {
         if (num !== null) {
           nums += 1
           sum += num
+          if (num < 0) neg += 1
           if (num > max) max = num
           if (num < min) min = num
         }
+        if (toDate(raw)) dates += 1
         const key = text.length > 40 ? text.slice(0, 40) : text
         counts.set(key, (counts.get(key) ?? 0) + 1)
       }
@@ -171,6 +202,9 @@ export default function SheetAnalysis() {
         max: nums ? max : 0,
         min: nums ? min : 0,
         card: counts.size,
+        empty: bodyRows.length - filled,
+        neg,
+        dates,
       }
     })
 
@@ -191,23 +225,99 @@ export default function SheetAnalysis() {
       numCols[0] ??
       null
 
-    return { numCols, catCols, auto }
+    // عمود التاريخ (لو موجود) — بنستخدمه في خط الاتجاه الشهري
+    const dateCols = cols.filter(
+      (c) => !c.isNum && c.card > 1 && c.dates >= 2 && c.dates / Math.max(1, bodyRows.length - c.empty) >= 0.6,
+    )
+    const dateCol =
+      dateCols.find((c) => hasWord(c.label, ['تاريخ', 'شهر', 'يوم', 'date', 'month', 'day'])) ??
+      dateCols[0] ??
+      null
+
+    // فحص جودة البيانات — كله محسوب من الشيت نفسه، مفيش رأي من الموديل هنا
+    const alerts = []
+    const sigs = new Map()
+    let emptyCells = 0
+    for (const r of bodyRows) {
+      const key = headers.map((_, i) => String(r?.[i] ?? '').trim()).join('\u0001')
+      sigs.set(key, (sigs.get(key) ?? 0) + 1)
+      for (let i = 0; i < headers.length; i += 1) if (!String(r?.[i] ?? '').trim()) emptyCells += 1
+    }
+    const dupRows = [...sigs.values()].reduce((n, c) => n + (c > 1 ? c - 1 : 0), 0)
+    const cellsTotal = bodyRows.length * headers.length
+    if (dupRows > 0) {
+      alerts.push({ type: 'warn', text: `في ${formatNumber(dupRows)} صف مكرّر بنفس القيم بالكامل — راجعهم قبل الاعتماد.` })
+    }
+    if (cellsTotal && emptyCells) {
+      const pct = Math.round((emptyCells / cellsTotal) * 100)
+      alerts.push({
+        type: pct > 20 ? 'warn' : 'info',
+        text: `في ${formatNumber(emptyCells)} خانة فاضية من ${formatNumber(cellsTotal)} (${formatNumber(pct)}%).`,
+      })
+    }
+    for (const c of cols) {
+      if (c.neg > 0) {
+        alerts.push({
+          type: 'warn',
+          text: `عمود «${c.label}» فيه ${formatNumber(c.neg)} قيمة سالبة — ممكن مرتجع أو خطأ إدخال.`,
+        })
+      }
+      if (bodyRows.length && c.empty / bodyRows.length >= 0.3) {
+        alerts.push({
+          type: 'info',
+          text: `عمود «${c.label}» فاضي في ${formatNumber(c.empty)} صف (${formatNumber(Math.round((c.empty / bodyRows.length) * 100))}%).`,
+        })
+      }
+    }
+
+    return { numCols, catCols, auto, dateCol, alerts }
   }, [headers, bodyRows])
 
   // العمود المختار للتجميع (لو المستخدم غيّره) وإلا الافتراضي
   const activeCount = stats.numCols.find((c) => String(c.index) === countCol) ?? stats.auto
   const valueName = activeCount ? `إجمالي ${activeCount.label}` : 'عدد السجلات'
 
-  // توزيع عمود تصنيفي على قيمة العمود الرقمي (أو عدد السجلات لو مفيش عمود رقمي)
-  function chartOf(col) {
-    const m = new Map()
-    for (const r of bodyRows) {
-      const key = String(r?.[col.index] ?? '').trim() || '(فاضي)'
-      const add = activeCount ? toNumber(r?.[activeCount.index]) ?? 0 : 1
-      m.set(key, (m.get(key) ?? 0) + add)
+  // كل الرسوم دي محسوبة من الشيت نفسه: توزيع الأعمدة التصنيفية + النِسب + الاتجاه الشهري
+  const visuals = useMemo(() => {
+    const valueOf = (r) => (activeCount ? toNumber(r?.[activeCount.index]) ?? 0 : 1)
+
+    const groupBy = (colIndex) => {
+      const m = new Map()
+      for (const r of bodyRows) {
+        const key = String(r?.[colIndex] ?? '').trim() || '(فاضي)'
+        m.set(key, (m.get(key) ?? 0) + valueOf(r))
+      }
+      return [...m.entries()].map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value)
     }
-    return [...m.entries()].map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value)
-  }
+
+    const bars = stats.catCols.slice(0, 2).map((c) => ({ col: c, data: groupBy(c.index).slice(0, 12) }))
+
+    // النِسب: أعلى ٥ فئات + «أخرى»
+    let donut = []
+    const first = stats.catCols[0]
+    if (first) {
+      const all = groupBy(first.index)
+      const rest = all.slice(5).reduce((s, x) => s + x.value, 0)
+      donut = rest > 0 ? [...all.slice(0, 5), { name: 'أخرى', value: rest }] : all
+    }
+
+    // الاتجاه الشهري (بيظهر لو في عمود تاريخ)
+    let trend = []
+    if (stats.dateCol) {
+      const m = new Map()
+      for (const r of bodyRows) {
+        const d = toDate(r?.[stats.dateCol.index])
+        if (!d) continue
+        const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+        m.set(key, (m.get(key) ?? 0) + valueOf(r))
+      }
+      trend = [...m.entries()]
+        .sort((a, b) => (a[0] < b[0] ? -1 : 1))
+        .map(([k, value]) => ({ name: monthLabel(k), value }))
+    }
+
+    return { bars, donut, trend }
+  }, [bodyRows, stats, activeCount])
 
   async function runAI() {
     setAiBusy(true)
@@ -236,6 +346,64 @@ export default function SheetAnalysis() {
     } finally {
       setAiBusy(false)
     }
+  }
+
+  // تنزيل التقرير كملف Excel بأكثر من ورقة (أرقام + جداول + ملاحظات + تحليل الـ AI)
+  function exportReport() {
+    const safeName = (s) => String(s ?? '').replace(/[[\]:*?/\\]/g, '-').slice(0, 31) || 'ورقة'
+    const round2 = (n) => Number(Number(n).toFixed(2))
+    const base = (fileName || 'report').replace(/\.[^.]+$/, '')
+
+    const sheets = [
+      {
+        sheetName: 'الأرقام',
+        headers: ['البند', 'القيمة'],
+        rows: [
+          ['الملف', fileName],
+          ['الورقة', activeSheet],
+          ['عدد السجلات', bodyRows.length],
+          ['عدد الأعمدة', headers.length],
+          ['عمود العدد', activeCount ? activeCount.label : '—'],
+          [valueName, activeCount ? activeCount.sum : bodyRows.length],
+        ],
+      },
+    ]
+
+    if (stats.numCols.length) {
+      sheets.push({
+        sheetName: 'الأعمدة الرقمية',
+        headers: ['العمود', 'الإجمالي', 'المتوسط', 'أعلى قيمة', 'أقل قيمة'],
+        rows: stats.numCols.map((c) => [c.label, round2(c.sum), round2(c.avg), round2(c.max), round2(c.min)]),
+      })
+    }
+    for (const b of visuals.bars) {
+      sheets.push({
+        sheetName: safeName(b.col.label),
+        headers: [b.col.label, valueName],
+        rows: b.data.map((d) => [d.name, round2(d.value)]),
+      })
+    }
+    if (visuals.trend.length) {
+      sheets.push({
+        sheetName: 'الاتجاه الشهري',
+        headers: ['الشهر', valueName],
+        rows: visuals.trend.map((t) => [t.name, round2(t.value)]),
+      })
+    }
+    if (stats.alerts.length) {
+      sheets.push({
+        sheetName: 'ملاحظات',
+        headers: ['ملاحظة'],
+        rows: stats.alerts.map((a) => [a.text]),
+      })
+    }
+    sheets.push({
+      sheetName: 'تحليل AI',
+      headers: ['تحليل الذكاء الاصطناعي'],
+      rows: String(ai?.summary ?? '').split('\n').map((line) => [line]),
+    })
+
+    exportXlsxSheets({ filename: `تحليل-شيت_${base}.xlsx`, sheets })
   }
 
   const sentRows = Math.min(bodyRows.length, MAX_ROWS)
@@ -294,13 +462,20 @@ export default function SheetAnalysis() {
                   {bodyRows.length > MAX_ROWS && ` (هيتم تحليل أول ${formatNumber(MAX_ROWS)} صف)`}
                 </p>
               </div>
-              <button
-                onClick={runAI}
-                disabled={aiBusy || !headers.length || !bodyRows.length}
-                className="btn-primary"
-              >
-                {aiBusy ? 'جاري التحليل…' : 'تحليل الشيت بالـ AI'}
-              </button>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  onClick={runAI}
+                  disabled={aiBusy || !headers.length || !bodyRows.length}
+                  className="btn-primary"
+                >
+                  {aiBusy ? 'جاري التحليل…' : 'تحليل الشيت بالـ AI'}
+                </button>
+                {ai && !aiError && (
+                  <button onClick={exportReport} className="btn-ghost">
+                    تنزيل التقرير (Excel)
+                  </button>
+                )}
+              </div>
             </div>
 
             <div className="table-wrap">
@@ -350,39 +525,97 @@ export default function SheetAnalysis() {
                 <Stat label={valueName} value={activeCount ? activeCount.sum : bodyRows.length} />
               </div>
 
-              {stats.catCols.length > 0 && (
+              {stats.alerts.length > 0 && (
+                <div className="card mb-4 border-amber-200 bg-amber-50">
+                  <h2 className="mb-2 font-bold text-lg">فحص جودة البيانات</h2>
+                  <ul className="space-y-1 text-sm text-slate-700">
+                    {stats.alerts.map((a, i) => (
+                      <li key={i} className="flex gap-2">
+                        <span
+                          className={`mt-2 h-2 w-2 shrink-0 rounded-full ${
+                            a.type === 'warn' ? 'bg-amber-500' : 'bg-slate-400'
+                          }`}
+                        />
+                        <span>{a.text}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {visuals.trend.length > 1 && (
+                <div className="card mb-4">
+                  <h2 className="mb-3 font-bold text-lg">{valueName} شهريًا</h2>
+                  <div style={{ width: '100%', height: 300 }}>
+                    <ResponsiveContainer>
+                      <LineChart data={visuals.trend} margin={{ top: 10, right: 20, left: 0, bottom: 10 }}>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                        <XAxis dataKey="name" tick={{ fontSize: 12 }} />
+                        <YAxis tick={{ fontSize: 12 }} />
+                        <Tooltip />
+                        <Line type="monotone" dataKey="value" stroke="#1d4ed8" strokeWidth={2} name={valueName} />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+              )}
+
+              {(visuals.bars.length > 0 || visuals.donut.length > 1) && (
                 <div className="mb-4 grid gap-6 lg:grid-cols-2">
-                  {stats.catCols.slice(0, 2).map((c) => {
-                    const data = chartOf(c).slice(0, 12)
-                    return (
-                      <div key={c.index} className="card min-w-0">
-                        <h2 className="mb-3 font-bold text-lg">
-                          {c.label}{' '}
-                          <span className="text-xs font-normal text-slate-400">
-                            (أعلى ١٢ من {formatNumber(c.card)})
-                          </span>
-                        </h2>
-                        <div style={{ width: '100%', height: 300 }}>
-                          <ResponsiveContainer>
-                            <BarChart data={data} margin={{ top: 10, right: 10, left: 0, bottom: 60 }}>
-                              <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                              <XAxis
-                                dataKey="name"
-                                angle={-30}
-                                textAnchor="end"
-                                interval="preserveStartEnd"
-                                height={80}
-                                tick={{ fontSize: 11 }}
-                              />
-                              <YAxis tick={{ fontSize: 12 }} />
-                              <Tooltip />
-                              <Bar dataKey="value" fill="#1d4ed8" radius={[4, 4, 0, 0]} name={valueName} />
-                            </BarChart>
-                          </ResponsiveContainer>
-                        </div>
+                  {visuals.bars.map((b) => (
+                    <div key={b.col.index} className="card min-w-0">
+                      <h2 className="mb-3 font-bold text-lg">
+                        {b.col.label}{' '}
+                        <span className="text-xs font-normal text-slate-400">
+                          (أعلى ١٢ من {formatNumber(b.col.card)})
+                        </span>
+                      </h2>
+                      <div style={{ width: '100%', height: 300 }}>
+                        <ResponsiveContainer>
+                          <BarChart data={b.data} margin={{ top: 10, right: 10, left: 0, bottom: 60 }}>
+                            <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                            <XAxis
+                              dataKey="name"
+                              angle={-30}
+                              textAnchor="end"
+                              interval="preserveStartEnd"
+                              height={80}
+                              tick={{ fontSize: 11 }}
+                            />
+                            <YAxis tick={{ fontSize: 12 }} />
+                            <Tooltip />
+                            <Bar dataKey="value" fill="#1d4ed8" radius={[4, 4, 0, 0]} name={valueName} />
+                          </BarChart>
+                        </ResponsiveContainer>
                       </div>
-                    )
-                  })}
+                    </div>
+                  ))}
+
+                  {visuals.donut.length > 1 && (
+                    <div className="card min-w-0">
+                      <h2 className="mb-3 font-bold text-lg">النِسب حسب «{stats.catCols[0].label}»</h2>
+                      <div style={{ width: '100%', height: 300 }}>
+                        <ResponsiveContainer>
+                          <PieChart>
+                            <Pie
+                              data={visuals.donut}
+                              dataKey="value"
+                              nameKey="name"
+                              innerRadius={60}
+                              outerRadius={105}
+                              paddingAngle={2}
+                            >
+                              {visuals.donut.map((d, i) => (
+                                <Cell key={d.name} fill={PIE_COLORS[i % PIE_COLORS.length]} />
+                              ))}
+                            </Pie>
+                            <Tooltip />
+                            <Legend wrapperStyle={{ fontSize: 12 }} />
+                          </PieChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
