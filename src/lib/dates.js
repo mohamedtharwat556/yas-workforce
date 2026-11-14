@@ -85,3 +85,20 @@ export function pivotByWorker(rows, { nameLabel = 'الموظف', totalLabel = '
       .map((w) => [w.name, w.total, ...ops.map((op) => w.byOp.get(op) ?? 0)]),
   }
 }
+
+// يفرّز الصفوف بالتاريخ وبيضيف سطر فاضي بين كل يوم والتاني (لتفصيل اللابات في الإكسل).
+// dateColIndex: رقم العمود اللي فيه التاريخ (افتراضيًا 1 يعني العمود التاني).
+export function separateByDay(rows, dateColIndex = 1) {
+  const sorted = [...rows].sort((a, b) =>
+    String(a?.[dateColIndex] ?? '').localeCompare(String(b?.[dateColIndex] ?? ''))
+  )
+  const out = []
+  let last = null
+  for (const row of sorted) {
+    const date = String(row?.[dateColIndex] ?? '')
+    if (last && date !== last) out.push([])
+    out.push(row)
+    last = date
+  }
+  return out
+}

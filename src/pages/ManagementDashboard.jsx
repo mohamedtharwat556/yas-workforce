@@ -13,7 +13,7 @@ import {
 import Layout from '../components/Layout'
 import StatusBadge from '../components/StatusBadge'
 import { supabase } from '../lib/supabase'
-import { formatDate, formatNumber, startOfMonth, toISODate, entryLines, entryTotalQty, pivotByWorker } from '../lib/dates'
+import { formatDate, formatNumber, startOfMonth, toISODate, entryLines, entryTotalQty, pivotByWorker, separateByDay } from '../lib/dates'
 import { exportXlsx } from '../lib/xlsx'
 import { printReport } from '../lib/report'
 
@@ -263,7 +263,7 @@ export default function ManagementDashboard() {
         {
           title: 'تفصيل اللابات',
           headers: ['الموظف', 'التاريخ', 'نوع اللاب', 'الموديل', 'السيريال', 'نوع التست'],
-          rows: laptopDetail,
+          rows: separateByDay(laptopDetail),
         },
       ],
     })

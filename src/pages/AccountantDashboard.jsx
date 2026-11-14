@@ -15,7 +15,7 @@ import Layout from '../components/Layout'
 import EntryDetails from '../components/EntryDetails'
 import StatusBadge from '../components/StatusBadge'
 import { supabase } from '../lib/supabase'
-import { formatDate, formatNumber, startOfMonth, startOfWeek, toISODate, entryLines, entryOperationNames, entryTotalQty, pivotByWorker } from '../lib/dates'
+import { formatDate, formatNumber, startOfMonth, startOfWeek, toISODate, entryLines, entryOperationNames, entryTotalQty, pivotByWorker, separateByDay } from '../lib/dates'
 import { printReport } from '../lib/report'
 import { exportXlsx } from '../lib/xlsx'
 
@@ -311,15 +311,17 @@ export default function AccountantDashboard() {
         {
           title: 'تفصيل اللابات',
           headers: ['الموظف', 'التاريخ', 'نوع اللاب', 'الموديل', 'السيريال', 'نوع التست'],
-          rows: filtered.flatMap((e) =>
-            (e.lap_serials ?? []).map((s) => [
-              e.employees?.full_name ?? 'غير معروف',
-              e.entry_date,
-              s.laptop_type ?? '—',
-              s.model ?? '—',
-              s.serial,
-              s.operations?.name_ar ?? '—',
-            ])
+          rows: separateByDay(
+            filtered.flatMap((e) =>
+              (e.lap_serials ?? []).map((s) => [
+                e.employees?.full_name ?? 'غير معروف',
+                e.entry_date,
+                s.laptop_type ?? '—',
+                s.model ?? '—',
+                s.serial,
+                s.operations?.name_ar ?? '—',
+              ])
+            )
           ),
         },
       ],
@@ -350,29 +352,33 @@ export default function AccountantDashboard() {
         {
           title: 'تفصيل الإدخالات',
           headers: ['اسم الموظف', 'التاريخ', 'نوع التست', 'عدد اللابات', 'ملاحظات'],
-          rows: filtered.flatMap((e) =>
-            entryLines(e).map((l) => [
-              e.employees?.full_name ?? 'غير معروف',
-              e.entry_date,
-              l.name,
-              l.quantity,
-              e.notes ?? '',
-            ])
+          rows: separateByDay(
+            filtered.flatMap((e) =>
+              entryLines(e).map((l) => [
+                e.employees?.full_name ?? 'غير معروف',
+                e.entry_date,
+                l.name,
+                l.quantity,
+                e.notes ?? '',
+              ])
+            )
           ),
         },
         {
           title: 'تفصيل اللابات',
           headers: ['اسم الموظف', 'التاريخ', 'نوع اللاب', 'الموديل', 'السيريال', 'الحالة', 'نوع التست'],
-          rows: filtered.flatMap((e) =>
-            (e.lap_serials ?? []).map((s) => [
-              e.employees?.full_name ?? 'غير معروف',
-              e.entry_date,
-              s.laptop_type ?? '—',
-              s.model ?? '—',
-              s.serial,
-              s.stage_code ? (stageMap[s.stage_code] ?? s.stage_code) : 'سليم',
-              s.operations?.name_ar ?? '—',
-            ])
+          rows: separateByDay(
+            filtered.flatMap((e) =>
+              (e.lap_serials ?? []).map((s) => [
+                e.employees?.full_name ?? 'غير معروف',
+                e.entry_date,
+                s.laptop_type ?? '—',
+                s.model ?? '—',
+                s.serial,
+                s.stage_code ? (stageMap[s.stage_code] ?? s.stage_code) : 'سليم',
+                s.operations?.name_ar ?? '—',
+              ])
+            )
           ),
         },
       ],

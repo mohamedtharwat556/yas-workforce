@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import Layout from '../components/Layout'
 import { supabase } from '../lib/supabase'
-import { formatDate, formatNumber, toISODate, entryOperationNames, pivotByWorker } from '../lib/dates'
+import { formatDate, formatNumber, toISODate, entryOperationNames, pivotByWorker, separateByDay } from '../lib/dates'
 import { exportXlsx } from '../lib/xlsx'
 
 // صفحة الإنتاجية (للمشرف فقط): إنتاجية كل موظف على الإدخالات المعتمدة —
@@ -108,6 +108,18 @@ export default function Productivity() {
 
   const totalLaptops = rows.length
 
+  // جدول بعرض للواجهة والتصدير: صف لكل موظف + عمود للإجمالي + عمود لكل نوع تست
+  const pivot = useMemo(
+    () => pivotByWorker(summary.map((r) => ({ name: r.name, operation: r.test, laps: r.count }))),
+    [summary]
+  )
+
+  // تفصيل اللابات مرتّب بالتاريخ (في الـ UI)
+  const rowsByDay = useMemo(
+    () => [...rows].sort((a, b) => String(a.date).localeCompare(String(b.date))),
+    [rows]
+  )
+
   // اسم الموظف المختار (لو في فلتر) — بيتحطّ في اسم الملف وجوّه الشيت
   const empName = employees.find((e) => e.id === empFilter)?.full_name ?? ''
   const exportMeta = empName ? [[`الموظف: ${empName}`]] : []
@@ -115,9 +127,6 @@ export default function Productivity() {
 
   // تصدير إنتاجية الموظفين (جدول بعرض: عمود لكل نوع تست + عمود الإجمالي)
   function exportSummary() {
-    const pivot = pivotByWorker(
-      summary.map((r) => ({ name: r.name, operation: r.test, laps: r.count }))
-    )
     exportXlsx({
       filename: `yas-productivity-summary${fileSuffix}_${toISODate(new Date())}.xlsx`,
       sheetName: 'إنتاجية الموظفين',
@@ -127,14 +136,16 @@ export default function Productivity() {
     })
   }
 
-  // تصدير جدول تفصيل اللابات
+  // تصدير جدول تفصيل اللابات (مرتّب بالتاريخ + سطر فاصل بين كل يوم والتاني)
   function exportDetails() {
     exportXlsx({
       filename: `yas-productivity-laptops${fileSuffix}_${toISODate(new Date())}.xlsx`,
       sheetName: 'تفصيل اللابات',
       meta: exportMeta,
       headers: ['الموظف', 'التاريخ', 'نوع اللاب', 'نوع التست', 'السيريال'],
-      rows: rows.map((r) => [r.name, r.date, r.laptop_type, r.test, r.serial]),
+      rows: separateByDay(
+        rows.map((r) => [r.name, r.date, r.laptop_type, r.test, r.serial])
+      ),
     })
   }
 
@@ -203,24 +214,26 @@ export default function Productivity() {
           <table className="table table-cards">
             <thead>
               <tr>
-                <th>الموظف</th>
-                <th>نوع التست</th>
-                <th>عدد اللابات</th>
+                {pivot.headers.map((h) => (
+                  <th key={h}>{h}</th>
+                ))}
               </tr>
             </thead>
             <tbody>
-              {summary.length === 0 && (
+              {pivot.rows.length === 0 && (
                 <tr>
-                  <td colSpan={3} className="text-center text-slate-400 py-6">
+                  <td colSpan={pivot.headers.length || 3} className="text-center text-slate-400 py-6">
                     {loading ? 'جاري التحميل…' : 'مفيش إدخالات معتمدة لسه'}
                   </td>
                 </tr>
               )}
-              {summary.map((r) => (
-                <tr key={`${r.name}-${r.test}`}>
-                  <td data-label="الموظف">{r.name}</td>
-                  <td data-label="نوع التست">{r.test}</td>
-                  <td data-label="عدد اللابات">{formatNumber(r.count)}</td>
+              {pivot.rows.map((row, i) => (
+                <tr key={row[0] ?? i}>
+                  {row.map((cell, j) => (
+                    <td key={j} data-label={pivot.headers[j]}>
+                      {typeof cell === 'number' ? formatNumber(cell) : cell}
+                    </td>
+                  ))}
                 </tr>
               ))}
             </tbody>
@@ -240,10 +253,10 @@ export default function Productivity() {
             <thead>
               <tr>
                 <th>الاسم</th>
+                <th>التاريخ</th>
                 <th>نوع اللاب</th>
                 <th>نوع التست</th>
                 <th>السيريال</th>
-                <th>التاريخ</th>
               </tr>
             </thead>
             <tbody>
@@ -254,13 +267,13 @@ export default function Productivity() {
                   </td>
                 </tr>
               )}
-              {rows.map((r, i) => (
+              {rowsByDay.map((r, i) => (
                 <tr key={`${r.serial}-${i}`}>
                   <td data-label="الاسم">{r.name}</td>
+                  <td data-label="التاريخ">{formatDate(r.date)}</td>
                   <td data-label="نوع اللاب">{r.laptop_type}</td>
                   <td data-label="نوع التست">{r.test}</td>
                   <td data-label="السيريال" dir="ltr" className="text-left font-mono text-sm">{r.serial}</td>
-                  <td data-label="التاريخ">{formatDate(r.date)}</td>
                 </tr>
               ))}
             </tbody>
