@@ -76,6 +76,7 @@ export default function ManagementDashboard() {
   const [ai, setAi] = useState(null)
   const [aiBusy, setAiBusy] = useState(false)
   const [aiError, setAiError] = useState('')
+  const [busyDelete, setBusyDelete] = useState(false)
 
   // الفترة السابقة (نفس طول الفترة المختارة) للمقارنة
   const prevRange = useMemo(() => {
@@ -104,7 +105,7 @@ export default function ManagementDashboard() {
     const { data } = await supabase
       .from('production_entries')
       .select(
-        'entry_date, quantity, status, laptop_id, worker_id, employees!production_entries_worker_id_fkey(full_name), operations(name_ar), entry_operations(quantity, operations(name_ar))'
+        'entry_date, quantity, status, worker_id, employees!production_entries_worker_id_fkey(full_name), operations(name_ar), entry_operations(quantity, operations(name_ar)), lap_serials(serial)'
       )
       .gte('entry_date', prevRange.start)
       .lte('entry_date', to)
@@ -155,11 +156,25 @@ export default function ManagementDashboard() {
       const status = {}
       const laptopsSet = new Set()
       let qty = 0
+      // عدد اللابات الفعلي = سيريالات اللابات المسجّلة في الإدخال
+      // (الإدخال القديم من غير سيريالات بنعدّه بعدد الوحدات المسجّلة)
+      const addLaptops = (entry, u, target) => {
+        const serials = Array.isArray(entry.lap_serials) ? entry.lap_serials : []
+        if (serials.length) {
+          for (const s of serials) {
+            const serial = String(s?.serial ?? '').trim()
+            const key = serial || `${entry.id}:${target.size}`
+            target.add(key)
+          }
+        } else {
+          for (let k = 0; k < u; k += 1) target.add(`${entry.id}:${k}`)
+        }
+      }
       for (const e of list) {
         const u = entryTotalQty(e)
         qty += u
         status[e.status] = (status[e.status] ?? 0) + 1
-        if (e.laptop_id) laptopsSet.add(e.laptop_id)
+        addLaptops(e, u, laptopsSet)
 
         const d = byDay.get(e.entry_date) ?? { date: e.entry_date, qty: 0, entries: 0 }
         d.qty += u
@@ -170,7 +185,7 @@ export default function ManagementDashboard() {
         const w = byWorker.get(name) ?? { name, qty: 0, entries: 0, laptops: new Set() }
         w.qty += u
         w.entries += 1
-        if (e.laptop_id) w.laptops.add(e.laptop_id)
+        addLaptops(e, u, w.laptops)
         byWorker.set(name, w)
       }
       return {
@@ -244,6 +259,27 @@ export default function ManagementDashboard() {
     } finally {
       setAiBusy(false)
     }
+  }
+
+  async function deleteAll() {
+    if (
+      !window.confirm(
+        'تحذير: هيتم حذف كل إدخالات الإنتاج في النظام نهائيًا (كل الموظفين وكل الفترات). تكمل؟'
+      )
+    )
+      return
+    if (!window.confirm('تأكيد أخير: مفيش رجوع بعد الحذف. متأكد؟')) return
+    setBusyDelete(true)
+    const { error } = await supabase.rpc('fn_delete_all_entries')
+    if (error) {
+      setBusyDelete(false)
+      return window.alert(error.message)
+    }
+    setAi(null)
+    setAiError('')
+    await Promise.all([loadAll(), loadAnalytics()])
+    setBusyDelete(false)
+    window.alert('تم حذف كل الإدخالات.')
   }
 
   return (
@@ -398,7 +434,12 @@ export default function ManagementDashboard() {
 
       {/* آخر الحركات */}
       <div className="card">
-        <h2 className="mb-3 font-bold">آخر حركات اللابات</h2>
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <h2 className="font-bold">آخر حركات اللابات</h2>
+          <button onClick={deleteAll} disabled={busyDelete} className="btn-danger !py-1.5 text-sm">
+            {busyDelete ? '…' : 'حذف الكل'}
+          </button>
+        </div>
         <div className="table-wrap">
           <table className="table table-cards">
             <thead>

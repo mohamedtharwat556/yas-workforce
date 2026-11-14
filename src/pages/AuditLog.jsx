@@ -162,7 +162,7 @@ export default function AuditLog() {
       meta: [[`الفترة: ${from} ← ${to}`], [`عدد السجلات: ${filtered.length}`]],
       headers: ['التاريخ', 'المستخدم', 'الدور', 'الإجراء', 'الكيان', 'معرّف العنصر'],
       rows: filtered.map((r) => [
-        new Date(r.created_at).toLocaleString('ar-EG'),
+        new Date(r.created_at).toLocaleString('ar-EG-u-nu-latn'),
         r.profiles?.full_name ?? '—',
         r.profiles?.role ?? '—',
         actionLabel(r.action),
@@ -458,7 +458,7 @@ function AuditDetails({ row, stageMap, onClose }) {
           <button onClick={onClose} className="btn-ghost !px-3 !py-1 text-sm">إغلاق</button>
         </div>
         <p className="text-sm text-slate-500 mb-4">
-          {row.profiles?.full_name ?? '—'} · {new Date(row.created_at).toLocaleString('ar-EG')} · {row.entity ?? '—'}
+          {row.profiles?.full_name ?? '—'} · {new Date(row.created_at).toLocaleString('ar-EG-u-nu-latn')} · {row.entity ?? '—'}
         </p>
         {isEntry && <EntryLaptops entryId={row.entity_id} after={row.after} stageMap={stageMap} />}
         <DiffTable before={row.before} after={row.after} stageMap={stageMap} />
@@ -640,7 +640,7 @@ function humanize(key, value, stageMap) {
   if (typeof value === 'boolean') return value ? 'نعم' : 'لا'
   if (key.endsWith('_at') || key.endsWith('_date')) {
     const d = new Date(value)
-    return isNaN(d) ? String(value) : d.toLocaleString('ar-EG')
+    return isNaN(d) ? String(value) : d.toLocaleString('ar-EG-u-nu-latn')
   }
   if (typeof value === 'object') return JSON.stringify(value)
   return String(value)

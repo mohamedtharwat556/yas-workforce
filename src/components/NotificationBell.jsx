@@ -56,7 +56,7 @@ function timeAgo(value) {
   if (hr < 24) return `قبل ${hr} ساعة`
   const day = Math.floor(hr / 24)
   if (day < 30) return `قبل ${day} يوم`
-  return new Date(value).toLocaleDateString('ar-EG', { year: 'numeric', month: '2-digit', day: '2-digit' })
+  return new Date(value).toLocaleDateString('ar-EG-u-nu-latn', { year: 'numeric', month: '2-digit', day: '2-digit' })
 }
 
 export default function NotificationBell() {

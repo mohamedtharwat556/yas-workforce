@@ -3,6 +3,7 @@ import {
   Bar,
   BarChart,
   CartesianGrid,
+  Legend,
   Line,
   LineChart,
   ResponsiveContainer,
@@ -31,6 +32,9 @@ async function edgeErrorMessage(error) {
   }
   return error?.message || 'تعذّر تشغيل التحليل.'
 }
+
+// ألوان ثابتة لأنواع التست على الشارت (كل نوع لون)
+const CHART_COLORS = ['#1d4ed8', '#0891b2', '#059669', '#d97706', '#7c3aed', '#64748b', '#dc2626', '#0f766e']
 
 export default function AccountantDashboard() {
   const [period, setPeriod] = useState('month')
@@ -224,6 +228,34 @@ export default function AccountantDashboard() {
       (a, b) => a.name.localeCompare(b.name, 'ar') || b.laps - a.laps
     )
   }, [filtered])
+
+  // نفس التفصيل بس مجمّع لكل موظف: «سهير: تاست خفيف 2 · تجميع 2» بدل رقم واحد
+  const workerBreakdown = useMemo(() => {
+    const m = new Map()
+    for (const r of byWorkerOperation) {
+      const arr = m.get(r.name) ?? []
+      arr.push({ operation: r.operation, laps: r.laps })
+      m.set(r.name, arr)
+    }
+    return m
+  }, [byWorkerOperation])
+
+  // بيانات الشارت: كل موظف مقسوم لأنواع التست (بار مركّب لكل نوع بلون مختلف)
+  const chartOps = useMemo(
+    () => Array.from(new Set(byWorkerOperation.map((r) => r.operation))),
+    [byWorkerOperation]
+  )
+
+  const chartRows = useMemo(() => {
+    const m = new Map()
+    for (const r of byWorkerOperation) {
+      const row = m.get(r.name) ?? { name: r.name, total: 0 }
+      row[r.operation] = (row[r.operation] ?? 0) + r.laps
+      row.total += r.laps
+      m.set(r.name, row)
+    }
+    return Array.from(m.values()).sort((a, b) => b.total - a.total)
+  }, [byWorkerOperation])
 
   // الأساس بتاع شيت الـ Excel: كل لاب على حدة (الموظف × نوع اللاب × نوع التاست × العدد).
   // بنقرا من سطور اللابات نفسها — سطر اللاب بيتحدّث في مكانه في دورة الصيانة
@@ -636,15 +668,25 @@ export default function AccountantDashboard() {
 
       <div className="grid gap-6 lg:grid-cols-2 mb-6">
         <div className="card min-w-0">
-          <h2 className="font-bold text-lg mb-3">العدد لكل موظف</h2>
+          <h2 className="font-bold text-lg mb-3">العدد لكل موظف (مقسّم على أنواع التست)</h2>
           <div style={{ width: '100%', height: 280 }}>
             <ResponsiveContainer>
-              <BarChart data={rows} margin={{ top: 10, right: 10, left: 0, bottom: 40 }}>
+              <BarChart data={chartRows} margin={{ top: 10, right: 10, left: 0, bottom: 40 }}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} />
                 <XAxis dataKey="name" angle={-30} textAnchor="end" interval="preserveStartEnd" height={60} tick={{ fontSize: 12 }} />
                 <YAxis tick={{ fontSize: 12 }} />
                 <Tooltip />
-                <Bar dataKey="laps" fill="#1d4ed8" radius={[4, 4, 0, 0]} name="عدد" />
+                <Legend wrapperStyle={{ fontSize: 12 }} />
+                {chartOps.map((op, i) => (
+                  <Bar
+                    key={op}
+                    dataKey={op}
+                    stackId="laps"
+                    fill={CHART_COLORS[i % CHART_COLORS.length]}
+                    name={op}
+                    radius={i === chartOps.length - 1 ? [4, 4, 0, 0] : 0}
+                  />
+                ))}
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -659,17 +701,18 @@ export default function AccountantDashboard() {
                   <th>#</th>
                   <th>الموظف</th>
                   <th>لابات</th>
+                  <th>التفصيل حسب نوع التست</th>
                 </tr>
               </thead>
               <tbody>
                 {loading && (
                   <tr>
-                    <td colSpan={3} className="text-center text-slate-400 py-6">جاري التحميل…</td>
+                    <td colSpan={4} className="text-center text-slate-400 py-6">جاري التحميل…</td>
                   </tr>
                 )}
                 {!loading && rows.length === 0 && (
                   <tr>
-                    <td colSpan={3} className="text-center text-slate-400 py-6">مفيش بيانات في الفترة دي</td>
+                    <td colSpan={4} className="text-center text-slate-400 py-6">مفيش بيانات في الفترة دي</td>
                   </tr>
                 )}
                 {rows.map((r, i) => (
@@ -684,6 +727,11 @@ export default function AccountantDashboard() {
                       </button>
                     </td>
                     <td data-label="لابات">{formatNumber(r.laps)}</td>
+                    <td data-label="التفصيل حسب نوع التست" className="text-xs text-slate-600">
+                      {(workerBreakdown.get(r.name) ?? [])
+                        .map((b) => `${b.operation} ${formatNumber(b.laps)}`)
+                        .join(' · ') || '—'}
+                    </td>
                   </tr>
                 ))}
               </tbody>

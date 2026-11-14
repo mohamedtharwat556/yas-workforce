@@ -24,7 +24,7 @@ export function toISODate(date) {
 
 export function formatDate(value) {
   if (!value) return '-'
-  return new Date(value).toLocaleDateString('ar-EG', { year: 'numeric', month: '2-digit', day: '2-digit' })
+  return new Date(value).toLocaleDateString('ar-EG-u-nu-latn', { year: 'numeric', month: '2-digit', day: '2-digit' })
 }
 
 // بنود الإدخال: كل بند = عملية + عدد.
@@ -58,6 +58,7 @@ export function entryOperationNames(entry) {
   return entryLines(entry).map((l) => l.name).join(' + ')
 }
 
+// الأرقام كلها بالأرقام الإنجليزية (0-9) في كل الموقع
 export function formatNumber(n) {
-  return new Intl.NumberFormat('ar-EG', { maximumFractionDigits: 2 }).format(Number(n) || 0)
+  return new Intl.NumberFormat('ar-EG-u-nu-latn', { maximumFractionDigits: 2 }).format(Number(n) || 0)
 }

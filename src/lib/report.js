@@ -6,12 +6,12 @@ function esc(value) {
 }
 
 function fmt(n) {
-  return new Intl.NumberFormat('ar-EG', { maximumFractionDigits: 2 }).format(Number(n) || 0)
+  return new Intl.NumberFormat('ar-EG-u-nu-latn', { maximumFractionDigits: 2 }).format(Number(n) || 0)
 }
 
 function fmtDate(value) {
   if (!value) return '-'
-  return new Date(value).toLocaleDateString('ar-EG', { year: 'numeric', month: '2-digit', day: '2-digit' })
+  return new Date(value).toLocaleDateString('ar-EG-u-nu-latn', { year: 'numeric', month: '2-digit', day: '2-digit' })
 }
 
 export function printReport({
@@ -70,7 +70,7 @@ export function printReport({
     <div class="brand">YAS Workforce<small>نظام الإنتاجية</small></div>
     <div class="meta">
       الفترة: ${esc(period?.start ?? '-')} ← ${esc(period?.end ?? '-')}<br />
-      تاريخ الإصدار: ${esc(new Date().toLocaleString('ar-EG'))}
+      تاريخ الإصدار: ${esc(new Date().toLocaleString('ar-EG-u-nu-latn'))}
     </div>
   </div>
 
