@@ -8,6 +8,7 @@ const NAV = {
     { to: '/supervisor', label: 'لوحة المشرف', short: 'المشرف' },
     { to: '/supervisor/employees', label: 'أسماء الموظفين', short: 'الموظفين' },
     { to: '/supervisor/stages', label: 'الوجهات والمراحل', short: 'المراحل' },
+    { to: '/supervisor/productivity', label: 'الإنتاجية', short: 'الإنتاجية' },
     { to: '/audit', label: 'سجل الأوديت', short: 'أوديت' },
   ],
   accountant: [
@@ -40,6 +41,13 @@ const ICONS = {
     <>
       <path d="M4 6h16M4 12h16M4 18h10" />
       <circle cx="18" cy="18" r="3" />
+    </>
+  ),
+  '/supervisor/productivity': (
+    <>
+      <circle cx="8" cy="7" r="3" />
+      <path d="M3 20c0-3 2.3-5 5-5s5 2 5 5" />
+      <path d="M16 20v-6M20 20v-9" />
     </>
   ),
   '/management': (
