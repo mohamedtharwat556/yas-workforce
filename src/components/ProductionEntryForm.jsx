@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import SerialScanner, { SCAN_SUPPORTED } from './SerialScanner'
 import { toISODate } from '../lib/dates'
@@ -48,6 +48,8 @@ export default function ProductionEntryForm({ onSaved }) {
   const [destinations, setDestinations] = useState([])
   const [employeeId, setEmployeeId] = useState('')
   const [empQuery, setEmpQuery] = useState('')
+  const [empOpen, setEmpOpen] = useState(false)
+  const empBoxRef = useRef(null)
   const [form, setForm] = useState(emptyForm())
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState(null)
@@ -89,6 +91,15 @@ export default function ProductionEntryForm({ onSaved }) {
     loadDestinations()
   }, [])
 
+  // قفل قائمة الموظفين لو المستخدم دوس بره الخانة
+  useEffect(() => {
+    function onDocDown(e) {
+      if (empBoxRef.current && !empBoxRef.current.contains(e.target)) setEmpOpen(false)
+    }
+    document.addEventListener('mousedown', onDocDown)
+    return () => document.removeEventListener('mousedown', onDocDown)
+  }, [])
+
   function update(field, value) {
     setForm((f) => ({ ...f, [field]: value }))
   }
@@ -99,6 +110,8 @@ export default function ProductionEntryForm({ onSaved }) {
     if (!q) return employees
     return employees.filter((e) => e.full_name.toLowerCase().includes(q))
   }, [employees, empQuery])
+
+  const selectedEmployee = employees.find((x) => x.id === employeeId)
 
   // بنود الإدخال (اختيار أكتر من عملية)
   function toggleLine(opId, checked) {
@@ -290,6 +303,7 @@ export default function ProductionEntryForm({ onSaved }) {
       setForm(emptyForm({ entry_date: form.entry_date }))
       setEmployeeId('')
       setEmpQuery('')
+      setEmpOpen(false)
       setMsg({ type: 'ok', text: `تم تسجيل إنتاج ${empName} — الإدخال بانتظار الاعتماد.` })
       onSaved?.()
     } catch (err) {
@@ -314,43 +328,65 @@ export default function ProductionEntryForm({ onSaved }) {
         </div>
       )}
 
-      <div>
+      <div ref={empBoxRef} className="relative">
         <label className="label">اسم الموظف</label>
-        <input
-          className="input"
-          placeholder="ابحث باسم الموظف…"
-          value={empQuery}
-          onChange={(e) => setEmpQuery(e.target.value)}
-        />
-        {employeeId && (
-          <p className="mt-1 text-sm text-emerald-700">
-            المختار: {employees.find((x) => x.id === employeeId)?.full_name}
-          </p>
+        <button
+          type="button"
+          onClick={() => {
+            setEmpOpen((o) => !o)
+            setEmpQuery('')
+          }}
+          className="input flex items-center justify-between text-right"
+        >
+          <span className={selectedEmployee ? '' : 'text-slate-400'}>
+            {selectedEmployee ? selectedEmployee.full_name : 'اختار الموظف…'}
+          </span>
+          <span className="text-slate-400" aria-hidden="true">
+            ▾
+          </span>
+        </button>
+
+        {empOpen && (
+          <div className="absolute z-20 mt-1 w-full overflow-hidden rounded-lg border border-slate-200 bg-white shadow-lg">
+            <div className="border-b border-slate-100 p-2">
+              <input
+                autoFocus
+                className="input"
+                placeholder="ابحث باسم الموظف…"
+                value={empQuery}
+                onChange={(e) => setEmpQuery(e.target.value)}
+              />
+            </div>
+            <div className="max-h-56 divide-y divide-slate-100 overflow-y-auto">
+              {filteredEmployees.length === 0 ? (
+                <p className="p-3 text-sm text-slate-400">
+                  {employees.length === 0 ? 'مفيش موظفين.' : 'مفيش اسم مطابق للبحث.'}
+                </p>
+              ) : (
+                filteredEmployees.map((emp) => {
+                  const selected = emp.id === employeeId
+                  return (
+                    <button
+                      type="button"
+                      key={emp.id}
+                      onClick={() => {
+                        setEmployeeId(emp.id)
+                        setEmpOpen(false)
+                      }}
+                      className={`flex w-full items-center justify-between px-3 py-2 text-left text-sm ${
+                        selected ? 'bg-blue-50 font-medium text-blue-700' : 'hover:bg-slate-50'
+                      }`}
+                    >
+                      <span>{emp.full_name}</span>
+                      {selected && <span aria-hidden="true">✓</span>}
+                    </button>
+                  )
+                })
+              )}
+            </div>
+          </div>
         )}
-        <div className="mt-2 max-h-56 divide-y divide-slate-100 overflow-y-auto rounded-lg border border-slate-200">
-          {filteredEmployees.length === 0 ? (
-            <p className="p-3 text-sm text-slate-400">
-              {employees.length === 0 ? 'مفيش موظفين.' : 'مفيش اسم مطابق للبحث.'}
-            </p>
-          ) : (
-            filteredEmployees.map((emp) => {
-              const selected = emp.id === employeeId
-              return (
-                <button
-                  type="button"
-                  key={emp.id}
-                  onClick={() => setEmployeeId(emp.id)}
-                  className={`flex w-full items-center justify-between px-3 py-2 text-left text-sm ${
-                    selected ? 'bg-blue-50 font-medium text-blue-700' : 'hover:bg-slate-50'
-                  }`}
-                >
-                  <span>{emp.full_name}</span>
-                  {selected && <span aria-hidden="true">✓</span>}
-                </button>
-              )
-            })
-          )}
-        </div>
+
         {employees.length === 0 && (
           <p className="text-xs text-amber-600 mt-1">
             مفيش موظفين — ضيف أسماء الموظفين من صفحة «أسماء الموظفين».
